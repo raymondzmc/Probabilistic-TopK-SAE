@@ -178,12 +178,9 @@ def train(
 
         # Update beta in Hard Concrete SAE modules based on schedule
         current_beta = None
-        if config.saes.sae_type in [SAEType.HARD_CONCRETE, SAEType.LAGRANGIAN_HARD_CONCRETE] and beta_schedule is not None:
-            current_beta = beta_schedule(grad_updates)
-            for sae_name, sae_module in model.saes.named_modules():
-                if isinstance(sae_module, (HardConcreteSAE, LagrangianHardConcreteSAE)):
-                    beta_tensor = torch.tensor(current_beta, device=sae_module.beta.device, dtype=sae_module.beta.dtype)
-                    sae_module.beta.copy_(beta_tensor)
+        for sae_name, sae_module in model.saes.named_modules():
+            if hasattr(sae_module, "beta"):
+                current_beta = sae_module.beta.item()
 
         total_samples += tokens.shape[0]
         n_tokens = tokens.shape[0] * tokens.shape[1]
@@ -231,15 +228,6 @@ def train(
         loss = sum(loss_output.loss for loss_output in output.loss_outputs.values())
         loss /= config.gradient_accumulation_steps
         loss.backward()
-
-        # # VI SAE dual update (before optimizer step)
-        # if config.saes.sae_type == SAEType.VI_TOPK:
-        #     with torch.no_grad():
-        #         for sae_name, sae_output in output.sae_outputs.items():
-        #             sae = model.saes[sae_name.replace(".", "-")]
-        #             if isinstance(sae, VITopKSAE):
-        #                 gap = sae_output.p.sum(dim=-1).mean() - sae.k  # E_batch[sum_i p_i] - K
-        #                 sae.update_dual(gap)
 
         if is_grad_step:
             if config.max_grad_norm is not None:

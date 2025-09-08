@@ -34,7 +34,7 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
     """
     if projects is None:
         projects = [
-            "raymondl/tinystories-1m-test"  # Test project with separate, decoder_transpose, scale, topk runs
+            "raymondl/tinystories-1m"  # Main project with topk and final_beta runs
         ]
     
     print(f"Collecting metrics data from {len(projects)} Wandb projects...")
@@ -61,10 +61,13 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
     
     # Collect data by SAE type - updated for the new run types
     data = {
-        'gated': [],  # previously "scale"
-        'ours': [],   # runs with "ours"
-        'relu': [],   # runs with "relu"
-        'topk': []
+        'topk': [],         # runs with "topk" but without "hard_concrete"
+        'relu': [],         # runs with "relu"
+        'gated': [],        # runs with "gated" or "scale"
+        'final_beta_1': [],   # runs with "final_beta_1"
+        'final_beta_0_5': [], # runs with "final_beta_0.5"
+        'final_beta_0_3': [], # runs with "final_beta_0.3"
+        'final_beta_0_1': []  # runs with "final_beta_0.1"
     }
     
     # Track layer names
@@ -75,14 +78,20 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
         
         # Determine SAE type based on run name patterns - updated logic
         sae_type = None
-        if 'ours' in name_lower:
-            sae_type = 'ours'
+        if ('topk' in name_lower or 'top-k' in name_lower or 'top_k' in name_lower) and 'hard_concrete' not in name_lower:
+            sae_type = 'topk'
         elif 'relu' in name_lower:
             sae_type = 'relu'
-        elif 'scale' in name_lower:
+        elif 'gated' in name_lower or 'scale' in name_lower:
             sae_type = 'gated'
-        elif ('topk' in name_lower or 'top-k' in name_lower or 'top_k' in name_lower):
-            sae_type = 'topk'
+        elif 'final_beta_1' in name_lower:
+            sae_type = 'final_beta_1'
+        elif 'final_beta_0.5' in name_lower:
+            sae_type = 'final_beta_0_5'
+        elif 'final_beta_0.3' in name_lower:
+            sae_type = 'final_beta_0_3'
+        elif 'final_beta_0.1' in name_lower:
+            sae_type = 'final_beta_0_1'
         else:
             continue  # Skip other types
         
@@ -228,26 +237,35 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
     
     # Color scheme for different SAE types - more distinct colors
     colors = {
+        'topk': '#1f77b4',                            # Blue
+        'relu': '#ff7f0e',                            # Orange
         'gated': '#2ca02c',                           # Green
-        'ours': '#1f77b4',                            # Blue
-        'relu': '#9467bd',                            # Purple
-        'topk': '#d62728'                             # Red
+        'final_beta_1': '#d62728',                    # Red
+        'final_beta_0_5': '#9467bd',                  # Purple
+        'final_beta_0_3': '#8c564b',                  # Brown
+        'final_beta_0_1': '#e377c2'                   # Pink
     }
     
     # Marker styles - more distinct shapes
     markers = {
-        'gated': '^',                                 # Triangle up
-        'ours': 'o',                                  # Circle
+        'topk': 'o',                                  # Circle
         'relu': 's',                                  # Square
-        'topk': 'v'                                   # Triangle down
+        'gated': '^',                                 # Triangle up
+        'final_beta_1': 'v',                          # Triangle down
+        'final_beta_0_5': 'D',                        # Diamond
+        'final_beta_0_3': 'P',                        # Plus (filled)
+        'final_beta_0_1': '*'                         # Star
     }
     
     # Labels for legend
     labels = {
-        'gated': 'Gated',
-        'ours': 'Ours',
+        'topk': 'Top-K',
         'relu': 'ReLU',
-        'topk': 'Top-K'
+        'gated': 'Gated',
+        'final_beta_1': 'Final Beta 1.0',
+        'final_beta_0_5': 'Final Beta 0.5',
+        'final_beta_0_3': 'Final Beta 0.3',
+        'final_beta_0_1': 'Final Beta 0.1'
     }
     
     # Track filtered statistics
@@ -259,12 +277,12 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         print(f"\nProcessing layer: {layer_name}")
         layer_filtered = 0
         
-        # Create figure with 3 subplots for this layer - larger size
-        fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+        # Create figure with 3 subplots for this layer - even larger size for better visibility
+        fig, axes = plt.subplots(1, 3, figsize=(36, 12))
         
         # Plot 1: MSE vs L0 (minimize both)
         ax1 = axes[0]
-        for sae_type in ['gated', 'ours', 'relu', 'topk']:
+        for sae_type in ['topk', 'relu', 'gated', 'final_beta_1', 'final_beta_0_5', 'final_beta_0_3', 'final_beta_0_1']:
             if data.get(sae_type):
                 # Extract layer-specific data WITH FILTERING
                 l0_values = []
@@ -306,7 +324,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax1.scatter(l0_values, mse_values, 
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=60, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=100, label=f'{labels[sae_type]} runs')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, mse_values, param_labels)):
@@ -354,7 +372,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         
         # Plot 2: Explained Variance vs L0 (minimize L0, maximize explained variance)
         ax2 = axes[1]
-        for sae_type in ['gated', 'ours', 'relu', 'topk']:
+        for sae_type in ['topk', 'relu', 'gated', 'final_beta_1', 'final_beta_0_5', 'final_beta_0_3', 'final_beta_0_1']:
             if data.get(sae_type):
                 # Extract layer-specific data WITH FILTERING
                 l0_values = []
@@ -392,7 +410,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax2.scatter(l0_values, ev_values,
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=60, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=100, label=f'{labels[sae_type]} runs')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, ev_values, param_labels)):
@@ -440,7 +458,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         
         # Plot 3: Alive Dictionary Elements vs L0
         ax3 = axes[2]
-        for sae_type in ['gated', 'ours', 'relu', 'topk']:
+        for sae_type in ['topk', 'relu', 'gated', 'final_beta_1', 'final_beta_0_5', 'final_beta_0_3', 'final_beta_0_1']:
             if data.get(sae_type):
                 # Extract layer-specific data WITH FILTERING
                 l0_values = []
@@ -478,7 +496,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax3.scatter(l0_values, alive_values,
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=60, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=100, label=f'{labels[sae_type]} runs')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, alive_values, param_labels)):
@@ -572,10 +590,13 @@ def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
     
     # Define display names
     display_names = {
-        'gated': 'Gated',
-        'ours': 'Ours',
+        'topk': 'Top-K',
         'relu': 'ReLU',
-        'topk': 'Top-K'
+        'gated': 'Gated',
+        'final_beta_1': 'Final Beta 1.0',
+        'final_beta_0_5': 'Final Beta 0.5',
+        'final_beta_0_3': 'Final Beta 0.3',
+        'final_beta_0_1': 'Final Beta 0.1'
     }
     
     for layer_name in layers:
@@ -583,7 +604,7 @@ def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
         print(f"LAYER: {layer_name}")
         print(f"{'='*80}")
         
-        for sae_type in ['gated', 'ours', 'relu', 'topk']:
+        for sae_type in ['topk', 'relu', 'gated', 'final_beta_1', 'final_beta_0_5', 'final_beta_0_3', 'final_beta_0_1']:
             if not data.get(sae_type):
                 continue
             
@@ -647,14 +668,14 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Plot Pareto curves for SAE types: gated (scale), ours (ours), relu (relu), and topk"
+        description="Plot Pareto curves for SAE types: topk, relu, gated, final_beta_1, final_beta_0.5, final_beta_0.3, and final_beta_0.1"
     )
     parser.add_argument(
         "--projects",
         type=str,
         nargs='+',
         default=None,
-        help="Wandb projects to collect data from (default: raymondl/tinystories-1m-test)"
+        help="Wandb projects to collect data from (default: raymondl/tinystories-1m)"
     )
     parser.add_argument(
         "--output-dir",

@@ -2,6 +2,7 @@ import torch
 import tqdm
 import yaml
 import wandb
+import inspect
 from pathlib import Path
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
@@ -15,25 +16,9 @@ from models.saes import (
     SAEConfig,
     SAELoss,
     SAEOutput,
-    ReluSAE,
-    ReLUSAEConfig,
-    HardConcreteSAEConfig,
-    HardConcreteSAE,
-    LagrangianHardConcreteSAEConfig,
-    LagrangianHardConcreteSAE,
-    GatedSAEConfig,
-    GatedSAE,
-    GatedHardConcreteSAEConfig,
-    GatedHardConcreteSAE,
-    TopKSAEConfig,
-    TopKSAE,
-    GumbelTopKSAEConfig,
-    GumbelTopKSAE,
-    VITopKSAEConfig,
-    VITopKSAE,
-    HardConcreteTopKSAEConfig,
-    HardConcreteTopKSAE,
     create_sae_config,
+    AllSAEConfigs,
+    SAE_TYPE_TO_CLS,
 )
 from models.loader import load_tlens_model
 from utils.constants import CONFIG_FILE, WANDB_CACHE_DIR
@@ -60,7 +45,7 @@ class SAETransformer(torch.nn.Module):
         super().__init__()
         # Ensure the model is moved to the correct device before using it
         self.tlens_model = tlens_model.eval()
-        self.sae_config = sae_config
+        self.sae_config: AllSAEConfigs = sae_config
         self.device = device
         if device is not None:
             self.tlens_model = self.tlens_model.to(device)
@@ -78,125 +63,34 @@ class SAETransformer(torch.nn.Module):
         """Create SAE modules with proper device context."""
         sae_config = self.sae_config
         device = self.device or self.tlens_model.cfg.device
+        
+        # Get the SAE class from the mapping
+        sae_cls = SAE_TYPE_TO_CLS.get(sae_config.sae_type)
+        if sae_cls is None:
+            raise ValueError(f"Unsupported SAE type: {sae_config.sae_type}")
+        
         for i in range(len(self.all_sae_positions)):
             input_size = self.hook_shapes[self.raw_sae_positions[i]][-1]
-
-            # TODO: Make this into a factory function.
-            if isinstance(sae_config, HardConcreteSAEConfig):
-                self.saes[self.all_sae_positions[i]] = HardConcreteSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    init_decoder_orthogonal=sae_config.init_decoder_orthogonal,
-                    initial_beta=sae_config.initial_beta,
-                    stretch_limits=sae_config.hard_concrete_stretch_limits,
-                    sparsity_coeff=sae_config.sparsity_coeff,
-                    mse_coeff=sae_config.mse_coeff,
-                    magnitude_activation=sae_config.magnitude_activation,
-                ).to(device)
-            elif isinstance(sae_config, LagrangianHardConcreteSAEConfig):
-                self.saes[self.all_sae_positions[i]] = LagrangianHardConcreteSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    initial_beta=sae_config.initial_beta,
-                    initial_alpha=sae_config.initial_alpha,
-                    alpha_lr=sae_config.alpha_lr,
-                    rho=sae_config.rho,
-                    stretch_limits=sae_config.hard_concrete_stretch_limits,
-                    mse_coeff=sae_config.mse_coeff,
-                    tied_encoder_init=sae_config.tied_encoder_init,
-                    magnitude_activation=sae_config.magnitude_activation,
-                    coefficient_threshold=sae_config.coefficient_threshold,
-                ).to(device)
-            elif isinstance(sae_config, GatedSAEConfig):
-                self.saes[self.all_sae_positions[i]] = GatedSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    sparsity_coeff=sae_config.sparsity_coeff,
-                    mse_coeff=sae_config.mse_coeff,
-                    aux_coeff=sae_config.aux_coeff,
-                    magnitude_encoder=sae_config.magnitude_encoder,
-                    magnitude_activation=sae_config.magnitude_activation,
-                ).to(device)
-            elif isinstance(sae_config, GatedHardConcreteSAEConfig):
-                self.saes[self.all_sae_positions[i]] = GatedHardConcreteSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    sparsity_coeff=sae_config.sparsity_coeff,
-                    mse_coeff=sae_config.mse_coeff,
-                    aux_coeff=sae_config.aux_coeff,
-                    initial_beta=sae_config.initial_beta,
-                    stretch_limits=sae_config.hard_concrete_stretch_limits,
-                ).to(device)
-            elif isinstance(sae_config, TopKSAEConfig):
-                self.saes[self.all_sae_positions[i]] = TopKSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    k=sae_config.k,
-                    mse_coeff=sae_config.mse_coeff,
-                    init_decoder_orthogonal=sae_config.init_decoder_orthogonal,
-                    tied_encoder_init=sae_config.tied_encoder_init,
-                    aux_k=sae_config.aux_k,
-                    aux_coeff=sae_config.aux_coeff,
-                ).to(device)
-            elif isinstance(sae_config, ReLUSAEConfig):
-                # Use ReLU SAE by default
-                self.saes[self.all_sae_positions[i]] = ReluSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    sparsity_coeff=sae_config.sparsity_coeff,
-                    mse_coeff=sae_config.mse_coeff,
-                    init_decoder_orthogonal=sae_config.init_decoder_orthogonal,
-                ).to(device)
-            elif isinstance(sae_config, GumbelTopKSAEConfig):
-                self.saes[self.all_sae_positions[i]] = GumbelTopKSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    k=sae_config.k,
-                    gumbel_temperature=sae_config.gumbel_temperature,
-                    init_decoder_orthogonal=sae_config.init_decoder_orthogonal,
-                    tied_encoder_init=sae_config.tied_encoder_init,
-                    magnitude_activation=sae_config.magnitude_activation,
-                    decoder_bias=sae_config.decoder_bias,
-                    aux_k=sae_config.aux_k,
-                    aux_coeff=sae_config.aux_coeff,
-                ).to(device)
-            elif isinstance(sae_config, VITopKSAEConfig):
-                self.saes[self.all_sae_positions[i]] = VITopKSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    k=sae_config.k,
-                    mse_coeff=sae_config.mse_coeff,
-                    init_decoder_orthogonal=sae_config.init_decoder_orthogonal,
-                    tied_encoder_init=sae_config.tied_encoder_init,
-                    st_tau=sae_config.st_tau,
-                    vi_temp=sae_config.vi_temp,
-                    kl_coeff=sae_config.kl_coeff,
-                    card_coeff=sae_config.card_coeff,
-                    score_mix_lambda=sae_config.score_mix_lambda,
-                    prior_rate=sae_config.prior_rate,
-                    dual_lr=sae_config.dual_lr,
-                    dual_init=sae_config.dual_init,
-                    aux_k=sae_config.aux_k,
-                    aux_coeff=sae_config.aux_coeff,
-                ).to(device)
-            elif isinstance(sae_config, HardConcreteTopKSAEConfig):
-                self.saes[self.all_sae_positions[i]] = HardConcreteTopKSAE(
-                    input_size=input_size,
-                    n_dict_components=int(sae_config.dict_size_to_input_ratio * input_size),
-                    k=sae_config.k,
-                    mse_coeff=sae_config.mse_coeff,
-                    init_decoder_orthogonal=sae_config.init_decoder_orthogonal,
-                    tied_encoder_init=sae_config.tied_encoder_init,
-                    aux_k=sae_config.aux_k,
-                    aux_coeff=sae_config.aux_coeff,
-                    initial_beta=sae_config.initial_beta,
-                    final_beta=sae_config.final_beta,
-                    score_method=sae_config.score_method,
-                    straight_through=sae_config.straight_through,
-                    tau=sae_config.tau,
-                ).to(device)
-            else:
-                raise ValueError(f"Unsupported SAE type: {sae_config.sae_type}")
+            
+            # Get all config parameters as a dict
+            config_dict = sae_config.model_dump()
+            
+            # Add the required parameters first
+            config_dict['input_size'] = input_size
+            config_dict['n_dict_components'] = int(sae_config.dict_size_to_input_ratio * input_size)
+            
+            # Get the constructor signature to filter parameters
+            constructor_sig = inspect.signature(sae_cls.__init__)
+            constructor_params = set(constructor_sig.parameters.keys()) - {'self'}  # Exclude 'self'
+            
+            # Filter config_dict to only include parameters that the constructor accepts
+            filtered_config_dict = {
+                key: value for key, value in config_dict.items() 
+                if key in constructor_params
+            }
+            
+            # Create and move SAE to device
+            self.saes[self.all_sae_positions[i]] = sae_cls(**filtered_config_dict).to(device)
 
     def forward(
         self,
