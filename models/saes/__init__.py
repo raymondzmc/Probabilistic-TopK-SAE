@@ -15,6 +15,43 @@ from typing import Any, Union
 import inspect
 
 
+ALL_SAE_CONFIGS = [
+    cls for name, cls in globals().items() 
+    if inspect.isclass(cls) and issubclass(cls, SAEConfig) and cls is not SAEConfig
+]
+
+# Union type for type annotations
+AllSAEConfigs = Union[*ALL_SAE_CONFIGS]
+
+SAE_TYPE_TO_CONFIG = {
+    SAEType.HARD_CONCRETE: HardConcreteSAEConfig,
+    SAEType.LAGRANGIAN_HARD_CONCRETE: LagrangianHardConcreteSAEConfig,
+    SAEType.RELU: ReLUSAEConfig,
+    SAEType.GATED: GatedSAEConfig,
+    SAEType.GATED_HARD_CONCRETE: GatedHardConcreteSAEConfig,
+    SAEType.TOPK: TopKSAEConfig,
+    SAEType.GUMBEL_TOPK: GumbelTopKSAEConfig,
+    SAEType.VI_TOPK: VITopKSAEConfig,
+    SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAEConfig,
+}
+
+
+SAE_TYPE_TO_CLS = {
+    SAEType.HARD_CONCRETE: HardConcreteSAE,
+    SAEType.LAGRANGIAN_HARD_CONCRETE: LagrangianHardConcreteSAE,
+    SAEType.RELU: ReluSAE,
+    SAEType.GATED: GatedSAE,
+    SAEType.GATED_HARD_CONCRETE: GatedHardConcreteSAE,
+    SAEType.TOPK: TopKSAE,
+    SAEType.GUMBEL_TOPK: GumbelTopKSAE,
+    SAEType.VI_TOPK: VITopKSAE,
+    SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAE,
+}
+
+assert set(SAE_TYPE_TO_CONFIG.keys()) == set(SAE_TYPE_TO_CLS.keys()), f"SAE_TYPE_TO_CONFIG.keys(): {SAE_TYPE_TO_CONFIG.keys()} != SAE_TYPE_TO_CLS.keys(): {SAE_TYPE_TO_CLS.keys()}"
+assert set(ALL_SAE_CONFIGS) == set(SAE_TYPE_TO_CONFIG.values()), f"ALL_SAE_CONFIGS: {ALL_SAE_CONFIGS} != SAE_TYPE_TO_CONFIG.values(): {SAE_TYPE_TO_CONFIG.values()}"
+
+
 def create_sae_config(config_dict: dict[str, Any]) -> SAEConfig:
     """Factory function to create the appropriate SAE config based on sae_type.
     
@@ -31,36 +68,12 @@ def create_sae_config(config_dict: dict[str, Any]) -> SAEConfig:
     if "sae_type" not in config_dict:
         raise ValueError("sae_type must be specified in SAE config")
     
-    sae_type = SAEType(config_dict["sae_type"])
+    try:
+        sae_type = SAEType(config_dict["sae_type"])
+    except ValueError:
+        raise ValueError(f"Invalid sae_type: {config_dict['sae_type']}")
     
-    if sae_type == SAEType.HARD_CONCRETE:
-        return HardConcreteSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.LAGRANGIAN_HARD_CONCRETE:
-        return LagrangianHardConcreteSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.RELU:
-        return ReLUSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.GATED:
-        return GatedSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.GATED_HARD_CONCRETE:
-        return GatedHardConcreteSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.TOPK:
-        return TopKSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.GUMBEL_TOPK:
-        return GumbelTopKSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.VI_TOPK:
-        return VITopKSAEConfig.model_validate(config_dict)
-    elif sae_type == SAEType.HARD_CONCRETE_TOPK:
-        return HardConcreteTopKSAEConfig.model_validate(config_dict)
-    else:
-        raise NotImplementedError(f"SAE type '{sae_type}' is not supported")
-
-
-ALL_SAE_CONFIGS = [
-    cls for name, cls in globals().items() 
-    if inspect.isclass(cls) and issubclass(cls, SAEConfig) and cls is not SAEConfig
-]
-# Union type for type annotations
-AllSAEConfigs = Union[*ALL_SAE_CONFIGS]
+    return SAE_TYPE_TO_CONFIG[sae_type].model_validate(config_dict)
 
 
 __all__ = [

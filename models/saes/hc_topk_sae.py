@@ -1,7 +1,7 @@
 # topk_sae.py
 import torch
 import torch.nn.functional as F
-from typing import Any, Literal
+from typing import Any
 from pydantic import Field, model_validator
 from jaxtyping import Float
 from utils.enums import SAEType
@@ -20,9 +20,10 @@ class HardConcreteTopKSAEConfig(SAEConfig):
     initial_beta: float = Field(5.0, description="Initial beta for hard concrete sampling")
     final_beta: float | None = Field(None, description="Final beta for hard concrete sampling")
 
-    score_method: Literal["gate_only", "magnitude", "magnitude_detached"] = Field("gate_only", description="Method to compute the score for the Top-K selection")
+    use_magnitude: bool = Field(True, description="Use magnitude in the score for the Top-K selection")
     straight_through: bool = Field(False, description="Use straight-through Top-K")
     tau: float | None = Field(None, description="Temperature for straight-through Top-K")
+    anneal_ratio: float | None = Field(None, description="Ratio of training steps before annealing beta")
 
     @model_validator(mode="before")
     @classmethod
@@ -39,6 +40,7 @@ class HardConcreteTopKSAEOutput(SAEOutput):
     preacts: Float[torch.Tensor, "... c"]  # encoder linear outputs (after centering)
     mask: Float[torch.Tensor, "... c"]     # binary mask of selected Top-K indices
     scores: Float[torch.Tensor, "... c"]   # scores of the selected Top-K indices
+    z: Float[torch.Tensor, "... c"]        # hard concrete samples
 
 
 class HardConcreteTopKSAE(BaseSAE):
@@ -55,9 +57,10 @@ class HardConcreteTopKSAE(BaseSAE):
         tied_encoder_init: bool = True,
         initial_beta: float = 5.0,
         final_beta: float | None = None,
-        score_method: Literal["gate_only", "magnitude", "magnitude_detached"] = "gate_only",
+        use_magnitude: bool = True,
         straight_through: bool = False,
         tau: float | None = None,
+        anneal_ratio: float | None = None,
     ):
         """
         Args:
@@ -72,9 +75,10 @@ class HardConcreteTopKSAE(BaseSAE):
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
             initial_beta: Initial beta for hard concrete sampling.
             final_beta: Final beta for hard concrete sampling.
-            score_method: Method to compute the score for the Top-K selection.
+            use_magnitude: Use magnitude in the score for the Top-K selection.
             straight_through: Use straight-through Top-K.
             tau: Temperature for straight-through Top-K.
+            anneal_ratio: Ratio of training steps before annealing beta.
         """
         super().__init__()
         assert k >= 0, "k must be non-negative"
@@ -117,21 +121,51 @@ class HardConcreteTopKSAE(BaseSAE):
         
         self.register_buffer("train_progress", torch.tensor(0.0))
         self.register_buffer("beta", torch.tensor(initial_beta, dtype=torch.float32))
+        self.initial_beta = initial_beta
         self.final_beta = final_beta
+        assert self.initial_beta > 0.0, "initial_beta must be positive"
+        assert self.final_beta is None or (self.final_beta > 0.0 and self.initial_beta >= self.final_beta), \
+            "final_beta must be positive and less than or equal to initial_beta"
+        assert anneal_ratio is None or (anneal_ratio >= 0.0 and anneal_ratio < 1.0), \
+            "anneal_ratio must be between 0.0 and 1.0 (exclusive)"
+        self.beta_anneal = self.final_beta is not None
+        self.anneal_ratio = anneal_ratio if anneal_ratio is not None else 0.0
 
-        self.score_method = score_method
+        self.use_magnitude = use_magnitude
         self.straight_through = straight_through
-        self.tau = 1.0 if straight_through and tau is None else tau
+        self.tau = 20.0 if straight_through and tau is None else tau
 
     def sample_hard_concrete(self, logits: torch.Tensor):
         u = torch.rand_like(logits).clamp_(1e-6, 1-1e-6)
         z = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.beta)
         return z
+    
+    def _refresh_beta(self):
+        t = float(self.train_progress.item())
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        # Start annealing only after anneal_ratio
+        if not self.beta_anneal or t < self.anneal_ratio:
+            return
+        
+        # Scale t to [0, 1] for the annealing phase
+        t_annealed = (t - self.anneal_ratio) / (1.0 - self.anneal_ratio)
+        t_annealed = 0.0 if t_annealed < 0.0 else (1.0 if t_annealed > 1.0 else t_annealed)
+        
+        # geometric interpolation: beta = beta0 * (beta1/beta0)^t
+        ratio = self.final_beta / self.initial_beta
+        new_beta = self.initial_beta * (ratio ** t_annealed)
+        # small safety clamp
+        new_beta = float(max(1e-3, new_beta))
+        self.beta.fill_(new_beta)
 
     def forward(self, x: Float[torch.Tensor, "... dim"]) -> HardConcreteTopKSAEOutput:
         """
         Forward pass (supports arbitrary leading batch dims; last dim == input_size).
         """
+
+        if self.training:
+            self._refresh_beta()
+
         # Center input
         x_centered = x - self.decoder_bias
         preacts = self.encoder(x_centered)
@@ -140,14 +174,10 @@ class HardConcreteTopKSAE(BaseSAE):
         z = self.sample_hard_concrete(gate_logits)
 
         # Compute scores
-        if self.score_method == "gate_only":
-            scores = z
-        elif self.score_method == "magnitude":
-            scores = z + preacts.abs()
-        elif self.score_method == "magnitude_detached":
-            scores = z + preacts.detach().clone().abs()
+        if self.use_magnitude:
+            scores = z + preacts.abs().detach()
         else:
-            raise ValueError(f"Invalid score_method: {self.score_method}")
+            scores = z
 
         # Select top-k indices
         topk_idx = torch.topk(scores, k=self.k, dim=-1)[1]
@@ -156,15 +186,16 @@ class HardConcreteTopKSAE(BaseSAE):
 
         # Add a straight-through soft mask
         if self.straight_through and self.training:
+            scores = (scores - scores.mean(dim=-1, keepdim=True)) / (scores.std(dim=-1, keepdim=True) + 1e-6)
             soft = torch.softmax(scores / self.tau, dim=-1)
             soft_k = soft * (self.k / (soft.sum(dim=-1, keepdim=True) + 1e-8))
             soft_k = soft_k.clamp(max=1.0)
-            mask += soft_k - soft_k.detach()
+            mask = mask + soft_k - soft_k.detach()
 
         c = preacts * mask
 
         x_hat = F.linear(c, self.dict_elements, bias=self.decoder_bias)
-        return HardConcreteTopKSAEOutput(input=x, c=c, output=x_hat, preacts=preacts, mask=mask, scores=scores)
+        return HardConcreteTopKSAEOutput(input=x, c=c, output=x_hat, z=z, preacts=preacts, mask=mask, scores=scores)
 
 
     def compute_loss(self, output: HardConcreteTopKSAEOutput) -> SAELoss:
@@ -178,7 +209,13 @@ class HardConcreteTopKSAE(BaseSAE):
         """
         mse_loss = F.mse_loss(output.output, output.input)
         total_loss = self.mse_coeff * mse_loss
-        loss_dict: dict[str, torch.Tensor] = {"mse_loss": mse_loss.detach().clone()}
+        loss_dict: dict[str, torch.Tensor] = {
+            "mse_loss": mse_loss.detach().clone(),
+            "preacts_mean": output.preacts.mean().detach().clone(),
+            "preacts_std": output.preacts.std().detach().clone(),
+            "z_mean": output.z.mean().detach().clone(),
+            "z_std": output.z.std().detach().clone(),
+        }
         return SAELoss(loss=total_loss, loss_dict=loss_dict)
 
     @property
