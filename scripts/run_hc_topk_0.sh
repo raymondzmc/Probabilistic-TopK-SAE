@@ -10,5 +10,9 @@ python run_experiments.py \
 --output_dir experiment_outputs/hc_topk_sweep0
 
 python evaluation.py \
---wandb_project raymondl/tinystories-1m \
---filter_runs_by_name final_beta_1
+--wandb_project raymondl/tinystories-1m-test \
+--filter_runs_by_name z_scale_0.1
+
+python evaluation.py \
+--wandb_project raymondl/tinystories-1m-test \
+--filter_runs_by_name z_scale_0.2

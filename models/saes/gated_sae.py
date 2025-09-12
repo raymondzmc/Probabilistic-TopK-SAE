@@ -53,12 +53,8 @@ class GatedSAE(BaseSAE):
         self.encoder = nn.Linear(input_size, n_dict_components, bias=False)
         
         # Magnitude network parameters
-        self.magnitude_activation = get_activation(magnitude_activation)
-        if self.magnitude_encoder_type == EncoderType.SEPARATE:
-            self.magnitude_encoder = nn.Linear(input_size, n_dict_components, bias=True)
-        elif self.magnitude_encoder_type == EncoderType.SCALE:
-            self.r_mag = nn.Parameter(torch.zeros(n_dict_components))
-            self.mag_bias = nn.Parameter(torch.zeros(n_dict_components))
+        self.r_mag = nn.Parameter(torch.zeros(n_dict_components))
+        self.mag_bias = nn.Parameter(torch.zeros(n_dict_components))
 
         # Gating network parameters
         self.gate_bias = nn.Parameter(torch.zeros(n_dict_components))
@@ -94,14 +90,9 @@ class GatedSAE(BaseSAE):
         f_gate = (pi_gate > 0).float()  # Heaviside step -> {0,1}
 
         # Magnitude network: exponential scaling + bias + ReLU
-        if self.magnitude_encoder_type == EncoderType.SEPARATE:
-            pi_mag = self.magnitude_encoder(x)
-        elif self.magnitude_encoder_type == EncoderType.SCALE:
-            pi_mag = self.r_mag.exp() * x_enc + self.mag_bias
-        elif self.magnitude_encoder_type == EncoderType.DECODER_TRANSPOSE:
-            pi_mag = F.linear(x, self.decoder.weight.T)
+        pi_mag = self.r_mag.exp() * x_enc + self.mag_bias
 
-        f_mag = self.magnitude_activation(pi_mag)
+        f_mag = F.relu(pi_mag)
 
         # Combine gating and magnitude
         code = f_gate * f_mag
@@ -129,7 +120,7 @@ class GatedSAE(BaseSAE):
         
         # L_sparsity: Sparsity loss using L1 norm on gate activations (ReLU of gate pre-activations)
         # In reference: f_gate = ReLU(pi_gate), then lp_norm(f_gate, p=1)
-        f_gate = F.relu(output.gates)  # Gate activations (post-ReLU)
+        f_gate = F.relu(output.gates)
         L_sparsity = torch.norm(f_gate, p=1.0, dim=-1).mean()
         
         # L_aux: Auxiliary reconstruction loss using gate activations with detached decoder
