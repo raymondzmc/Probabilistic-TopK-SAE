@@ -24,6 +24,10 @@ class HardConcreteTopKSAEConfig(SAEConfig):
     straight_through: bool = Field(False, description="Use straight-through Top-K")
     tau: float | None = Field(None, description="Temperature for straight-through Top-K")
     anneal_ratio: float | None = Field(None, description="Ratio of training steps before annealing beta")
+    normalize_scores: bool = Field(True, description="Normalize scores to have mean 0 and std 1")
+    normalize_magnitude: bool = Field(True, description="Normalize magnitude to have mean 0 and std 1")
+    add_magnitude_to_scores: bool = Field(False, description="Add magnitude to scores")
+    z_scale: float = Field(0.5, description="Scale for the hard concrete samples")
 
     @model_validator(mode="before")
     @classmethod
@@ -41,6 +45,7 @@ class HardConcreteTopKSAEOutput(SAEOutput):
     mask: Float[torch.Tensor, "... c"]     # binary mask of selected Top-K indices
     scores: Float[torch.Tensor, "... c"]   # scores of the selected Top-K indices
     z: Float[torch.Tensor, "... c"]        # hard concrete samples
+    gate_logits: Float[torch.Tensor, "... c"] | None = None # gate logits
 
 
 class HardConcreteTopKSAE(BaseSAE):
@@ -61,6 +66,10 @@ class HardConcreteTopKSAE(BaseSAE):
         straight_through: bool = False,
         tau: float | None = None,
         anneal_ratio: float | None = None,
+        normalize_scores: bool = False,
+        normalize_magnitude: bool = True,
+        add_magnitude_to_scores: bool = True,
+        z_scale: float = 0.5,
     ):
         """
         Args:
@@ -79,6 +88,7 @@ class HardConcreteTopKSAE(BaseSAE):
             straight_through: Use straight-through Top-K.
             tau: Temperature for straight-through Top-K.
             anneal_ratio: Ratio of training steps before annealing beta.
+            z_scale: Scale for the hard concrete samples.
         """
         super().__init__()
         assert k >= 0, "k must be non-negative"
@@ -115,9 +125,7 @@ class HardConcreteTopKSAE(BaseSAE):
         if tied_encoder_init:
             self.encoder.weight.data.copy_(self.decoder.weight.data.T)
 
-        self.gate_ln = torch.nn.LayerNorm(n_dict_components, elementwise_affine=False)
-        self.gate_scale = torch.nn.Parameter(torch.randn(n_dict_components))
-        self.gate_bias = torch.nn.Parameter(torch.ones(n_dict_components))
+        self.gate_ln = torch.nn.LayerNorm(n_dict_components, elementwise_affine=True)
         
         self.register_buffer("train_progress", torch.tensor(0.0))
         self.register_buffer("beta", torch.tensor(initial_beta, dtype=torch.float32))
@@ -134,10 +142,17 @@ class HardConcreteTopKSAE(BaseSAE):
         self.use_magnitude = use_magnitude
         self.straight_through = straight_through
         self.tau = 20.0 if straight_through and tau is None else tau
+        self.normalize_scores = normalize_scores
+        self.normalize_magnitude = normalize_magnitude
+        self.add_magnitude_to_scores = add_magnitude_to_scores
+        self.z_scale = z_scale
 
     def sample_hard_concrete(self, logits: torch.Tensor):
-        u = torch.rand_like(logits).clamp_(1e-6, 1-1e-6)
-        z = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.beta)
+        if self.training:
+            u = torch.rand_like(logits).clamp_(1e-6, 1-1e-6)
+            z = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.beta)
+        else:
+            z = torch.sigmoid(logits / self.beta)
         return z
     
     def _refresh_beta(self):
@@ -170,12 +185,12 @@ class HardConcreteTopKSAE(BaseSAE):
         x_centered = x - self.decoder_bias
         preacts = self.encoder(x_centered)
 
-        gate_logits = self.gate_scale * self.gate_ln(preacts) + self.gate_bias
+        # gate_logits = self.gate_scale * self.gate_ln(preacts) + self.gate_bias
+        gate_logits = self.gate_ln(preacts)
         z = self.sample_hard_concrete(gate_logits)
 
-        # Compute scores
         if self.use_magnitude:
-            scores = z + preacts.abs().detach()
+            scores = z + preacts.abs()
         else:
             scores = z
 
@@ -186,13 +201,12 @@ class HardConcreteTopKSAE(BaseSAE):
 
         # Add a straight-through soft mask
         if self.straight_through and self.training:
-            scores = (scores - scores.mean(dim=-1, keepdim=True)) / (scores.std(dim=-1, keepdim=True) + 1e-6)
             soft = torch.softmax(scores / self.tau, dim=-1)
-            soft_k = soft * (self.k / (soft.sum(dim=-1, keepdim=True) + 1e-8))
-            soft_k = soft_k.clamp(max=1.0)
+            soft_k = soft * (self.k / (soft.sum(dim=-1, keepdim=True) + 1e-8)).clamp(max=1.0)
             mask = mask + soft_k - soft_k.detach()
 
-        c = preacts * mask
+        # c = preacts * mask
+        c = (preacts * mask) * (self.z_scale + z)
 
         x_hat = F.linear(c, self.dict_elements, bias=self.decoder_bias)
         return HardConcreteTopKSAEOutput(input=x, c=c, output=x_hat, z=z, preacts=preacts, mask=mask, scores=scores)

@@ -1,11 +1,12 @@
 #!/bin/bash
 conda activate sae
 
-CUDA_VISIBLE_DEVICES=1 python run_experiments.py \
---base_config configs/tinystories-test/tinystories-relu.yaml \
---sweep_config configs/tinystories-test/sweep/relu_sweep.yaml \
+export CUDA_VISIBLE_DEVICES=4
+python run_experiments.py \
+--base_config configs/gpt2/gpt2-relu.yaml \
+--sweep_config configs/gpt2/sweep/relu_sweep.yaml \
 --output_dir experiment_outputs/relu_sweep
 
-CUDA_VISIBLE_DEVICES=1 python evaluation.py \
---wandb_project raymondl/tinystories-1m-test \
+python evaluation.py \
+--wandb_project raymondl/gpt2-tiny \
 --filter_runs_by_name relu
