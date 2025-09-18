@@ -21,13 +21,15 @@ class HardConcreteTopKSAEConfig(SAEConfig):
     final_beta: float | None = Field(None, description="Final beta for hard concrete sampling")
 
     use_magnitude: bool = Field(True, description="Use magnitude in the score for the Top-K selection")
+    magnitude_scale: float = Field(0.01, description="Scale for the magnitude")
     straight_through: bool = Field(False, description="Use straight-through Top-K")
     tau: float | None = Field(None, description="Temperature for straight-through Top-K")
     anneal_ratio: float | None = Field(None, description="Ratio of training steps before annealing beta")
     normalize_scores: bool = Field(True, description="Normalize scores to have mean 0 and std 1")
-    normalize_magnitude: bool = Field(True, description="Normalize magnitude to have mean 0 and std 1")
+    normalize_magnitude: bool = Field(False, description="Normalize magnitude to have mean 0 and std 1")
     add_magnitude_to_scores: bool = Field(False, description="Add magnitude to scores")
-    z_scale: float = Field(0.5, description="Scale for the hard concrete samples")
+    z_scale: float | None = Field(None, description="Scale for the hard concrete samples")
+    detach_decoder_bias: bool = Field(False, description="Detach the decoder bias from the gradient")
 
     @model_validator(mode="before")
     @classmethod
@@ -63,13 +65,15 @@ class HardConcreteTopKSAE(BaseSAE):
         initial_beta: float = 5.0,
         final_beta: float | None = None,
         use_magnitude: bool = True,
+        magnitude_scale: float = 0.01,
         straight_through: bool = False,
         tau: float | None = None,
         anneal_ratio: float | None = None,
         normalize_scores: bool = False,
-        normalize_magnitude: bool = True,
+        normalize_magnitude: bool = False,
         add_magnitude_to_scores: bool = True,
-        z_scale: float = 0.5,
+        z_scale: float | None = None,
+        detach_decoder_bias: bool = False,
     ):
         """
         Args:
@@ -89,6 +93,7 @@ class HardConcreteTopKSAE(BaseSAE):
             tau: Temperature for straight-through Top-K.
             anneal_ratio: Ratio of training steps before annealing beta.
             z_scale: Scale for the hard concrete samples.
+            detach_decoder_bias: Detach the decoder bias from the gradient.
         """
         super().__init__()
         assert k >= 0, "k must be non-negative"
@@ -140,12 +145,15 @@ class HardConcreteTopKSAE(BaseSAE):
         self.anneal_ratio = anneal_ratio if anneal_ratio is not None else 0.0
 
         self.use_magnitude = use_magnitude
+        self.magnitude_scale = magnitude_scale
+
         self.straight_through = straight_through
         self.tau = 20.0 if straight_through and tau is None else tau
         self.normalize_scores = normalize_scores
         self.normalize_magnitude = normalize_magnitude
         self.add_magnitude_to_scores = add_magnitude_to_scores
         self.z_scale = z_scale
+        self.detach_decoder_bias = detach_decoder_bias
 
     def sample_hard_concrete(self, logits: torch.Tensor):
         if self.training:
@@ -182,15 +190,21 @@ class HardConcreteTopKSAE(BaseSAE):
             self._refresh_beta()
 
         # Center input
-        x_centered = x - self.decoder_bias
+        if self.detach_decoder_bias:
+            x_centered = x - self.decoder_bias.detach()
+        else:
+            x_centered = x - self.decoder_bias
         preacts = self.encoder(x_centered)
-
-        # gate_logits = self.gate_scale * self.gate_ln(preacts) + self.gate_bias
         gate_logits = self.gate_ln(preacts)
+
         z = self.sample_hard_concrete(gate_logits)
 
         if self.use_magnitude:
-            scores = z + preacts.abs()
+            magnitude = preacts.abs()
+            if self.normalize_magnitude:
+                magnitude = magnitude.detach()
+                magnitude = (magnitude - magnitude.mean(dim=-1, keepdim=True)) / (magnitude.std(dim=-1, keepdim=True) + 1e-8)
+            scores = z + self.magnitude_scale * magnitude
         else:
             scores = z
 
@@ -206,7 +220,10 @@ class HardConcreteTopKSAE(BaseSAE):
             mask = mask + soft_k - soft_k.detach()
 
         # c = preacts * mask
-        c = (preacts * mask) * (self.z_scale + z)
+        if self.z_scale is not None:
+            c = (preacts * mask) * (self.z_scale + z)
+        else:
+            c = preacts * mask
 
         x_hat = F.linear(c, self.dict_elements, bias=self.decoder_bias)
         return HardConcreteTopKSAEOutput(input=x, c=c, output=x_hat, z=z, preacts=preacts, mask=mask, scores=scores)

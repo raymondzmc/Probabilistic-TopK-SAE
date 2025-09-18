@@ -9,5 +9,5 @@ python run_experiments.py \
 --output_dir experiment_outputs/gated_sweep
 
 python evaluation.py \
---wandb_project raymondl/gpt2-tiny \
+--wandb_project raymondl/gpt2-small \
 --filter_runs_by_name gated

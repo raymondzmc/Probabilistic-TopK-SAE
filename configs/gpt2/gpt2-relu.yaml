@@ -1,5 +1,5 @@
 # Experiment Settings
-wandb_project: gpt2-tiny
+wandb_project: gpt2-small
 wandb_run_name: null
 wandb_tags: ["relu"]
 seed: 42
