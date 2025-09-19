@@ -1,0 +1,3 @@
+k: [64]
+magnitude_scale: [1e-3]
+straight_through: [True]

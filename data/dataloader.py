@@ -251,8 +251,9 @@ def create_dataloaders(
             train_dataset,
             tokenizer,
             max_length=data_config.context_length,
-            column_name=data_config.column_name,
-            add_bos_token=True,
+            # column_name=data_config.column_name,
+            # add_bos_token=True,
+            add_bos_token=False,
         )
         
         eval_torch_dataset = None
@@ -261,8 +262,9 @@ def create_dataloaders(
                 eval_dataset,
                 tokenizer,
                 max_length=data_config.context_length,
-                column_name=data_config.column_name,
-                add_bos_token=True,
+                # column_name=data_config.column_name,
+                # add_bos_token=True,
+                add_bos_token=False,
             )
     
     # Use StreamingDataLoader for streaming datasets, regular DataLoader for others
