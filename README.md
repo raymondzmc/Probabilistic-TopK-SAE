@@ -28,3 +28,29 @@ python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-gated.yaml
 python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-topk.yaml \
 --sweep_config configs/qwen3-0.6b/sweep/topk_sweep_0.yaml \
 --output_dir experiment_outputs/qwen3-0.6b/topk_sweep_0
+
+python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-topk.yaml \
+--sweep_config configs/qwen3-0.6b/sweep/topk_sweep_1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/topk_sweep_1
+
+
+
+python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_1
+
+python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_2.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_2
+
+python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_3.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_3
+
+python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_4.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_4
+
+python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_5.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_5
