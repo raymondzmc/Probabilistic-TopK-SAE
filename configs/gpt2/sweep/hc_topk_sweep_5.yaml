@@ -1,3 +1,2 @@
-k: [32]
-magnitude_scale: [1e-5]
+k: [48]
 initial_beta: [1.0]

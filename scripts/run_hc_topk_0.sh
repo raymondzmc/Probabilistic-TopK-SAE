@@ -11,12 +11,12 @@ python run_experiments.py \
 
 python evaluation.py \
 --wandb_project raymondl/gpt2-small \
---filter_runs_by_name hard_concrete_topk_k_32_magnitude_scale_1e-3
+--filter_runs_by_name k_8
 
 # python evaluation.py \
 # --wandb_project raymondl/gpt2-small \
 # --filter_runs_by_name hard_concrete_topk_k_32_magnitude_scale_1e-4
 
-python evaluation.py \
---wandb_project raymondl/gpt2-small \
---filter_runs_by_name hard_concrete_topk_k_32_magnitude_scale_1e-5
+# python evaluation.py \
+# --wandb_project raymondl/gpt2-small \
+# --filter_runs_by_name hard_concrete_topk_k_32_magnitude_scale_1e-5

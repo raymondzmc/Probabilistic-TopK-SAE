@@ -10,4 +10,12 @@ python run_experiments.py \
 
 python evaluation.py \
 --wandb_project raymondl/gpt2-small \
---filter_runs_by_name gated
+--filter_runs_by_name gated_sparsity_coeff_0.02
+
+python evaluation.py \
+--wandb_project raymondl/gpt2-small \
+--filter_runs_by_name gated_sparsity_coeff_0.03
+
+python evaluation.py \
+--wandb_project raymondl/gpt2-small \
+--filter_runs_by_name gated_sparsity_coeff_0.04

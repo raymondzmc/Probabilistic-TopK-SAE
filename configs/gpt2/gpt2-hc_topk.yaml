@@ -53,14 +53,14 @@ saes:
   tied_encoder_init: true
   aux_k: null
   aux_coeff: null
-  initial_beta: 0.5
-  final_beta: 0.1
+  initial_beta: 5.0
+  final_beta: 1e-4
   use_magnitude: true
   straight_through: false
-  tau: 10.0
+  tau: null
   anneal_ratio: null
   normalize_scores: true
   normalize_magnitude: false
   add_magnitude_to_scores: true
   z_scale: 1.0
-  magnitude_scale: 0.01
+  magnitude_scale: 1e-4
