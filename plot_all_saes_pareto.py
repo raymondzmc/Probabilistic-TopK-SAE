@@ -59,10 +59,12 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
     print(f"\nTotal runs across all projects: {len(all_runs)}")
     runs = all_runs
     
-    # Collect data by SAE type - only ReLU and Gated for GPT-2
+    # Collect data by SAE type - ReLU, Gated, TopK, and Probabilistic for GPT-2
     data = {
         'relu': [],         # runs with "relu"
-        'gated': [],        # runs with "gated" or "scale"
+        'gated': [],        # runs with "gated" or "scale" but not "hard_concrete"
+        'topk': [],         # runs with "topk" but not "hard_concrete"
+        'probabilistic': [], # runs with "probabilistic"
     }
     
     # Track layer names
@@ -71,12 +73,18 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
     for run in runs:
         name_lower = run.name.lower()
         
-        # Determine SAE type based on run name patterns - only ReLU and Gated for GPT-2
+        # Determine SAE type based on run name patterns - ReLU, Gated, TopK, and Probabilistic for GPT-2
         sae_type = None
-        if 'relu' in name_lower:
+        if 'hard_concrete' in name_lower:
+            continue  # Skip hard_concrete runs
+        elif 'probabilistic' in name_lower:
+            sae_type = 'probabilistic'
+        elif 'relu' in name_lower:
             sae_type = 'relu'
         elif 'gated' in name_lower or 'scale' in name_lower:
             sae_type = 'gated'
+        elif 'topk' in name_lower:
+            sae_type = 'topk'
         else:
             continue  # Skip other types
         
@@ -89,22 +97,34 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
         metrics = load_metrics_from_wandb(run.id, run_project)
         
         if metrics:
-            # Extract hyperparameters - only sparsity_coeff for ReLU and Gated SAEs
+            # Extract hyperparameters based on SAE type
             sparsity_coeff = None
+            param_value = None
             
-            # Extract sparsity_coeff if available
-            if 'sparsity_coeff_' in run.name:
-                coeff_str = run.name.split('sparsity_coeff_')[1].split('_')[0]
-                try:
-                    sparsity_coeff = float(coeff_str)
-                except:
-                    sparsity_coeff = None
+            if sae_type in ['relu', 'gated']:
+                # Extract sparsity_coeff if available
+                if 'sparsity_coeff_' in run.name:
+                    coeff_str = run.name.split('sparsity_coeff_')[1].split('_')[0]
+                    try:
+                        sparsity_coeff = float(coeff_str)
+                        param_value = sparsity_coeff
+                    except:
+                        sparsity_coeff = None
+            elif sae_type in ['topk', 'probabilistic']:
+                # Extract k value for TopK and Probabilistic SAEs
+                if '_k_' in run.name:
+                    k_str = run.name.split('_k_')[1].split('_')[0]
+                    try:
+                        param_value = int(k_str)
+                    except:
+                        param_value = None
             
             # Store per-layer metrics
             run_data = {
                 'run_name': run.name,
                 'run_id': run.id,
                 'sparsity_coeff': sparsity_coeff,
+                'param_value': param_value,
                 'layers': {}
             }
             
@@ -198,18 +218,24 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
     colors = {
         'relu': '#ff7f0e',                            # Orange
         'gated': '#2ca02c',                           # Green
+        'topk': '#1f77b4',                            # Blue
+        'probabilistic': '#9467bd',                   # Purple
     }
     
     # Marker styles - more distinct shapes
     markers = {
         'relu': 's',                                  # Square
         'gated': '^',                                 # Triangle up
+        'topk': 'o',                                  # Circle
+        'probabilistic': 'D',                         # Diamond
     }
     
     # Labels for legend
     labels = {
         'relu': 'ReLU',
         'gated': 'Gated',
+        'topk': 'TopK',
+        'probabilistic': 'Probabilistic',
     }
     
     # Track filtered statistics
@@ -226,7 +252,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         
         # Plot 1: MSE vs L0 (minimize both)
         ax1 = axes[0]
-        for sae_type in ['relu', 'gated']:
+        for sae_type in ['relu', 'gated', 'topk', 'probabilistic']:
             if data.get(sae_type):
                 # Extract layer-specific data WITH FILTERING
                 l0_values = []
@@ -245,8 +271,8 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             mse_values.append(mse)
                             run_names.append(run_data['run_name'])
                             
-                            # Get sparsity coefficient for labeling
-                            param_labels.append(run_data.get('sparsity_coeff', None))
+                            # Get parameter for labeling
+                            param_labels.append(run_data.get('param_value', None))
                         else:
                             layer_filtered += 1
                             filtered_by_type[sae_type] += 1
@@ -269,8 +295,10 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, mse_values, param_labels)):
                     if param is not None:
-                        # Format label for display (sparsity coefficients)
-                        if param >= 0.01:
+                        # Format label for display based on parameter type
+                        if isinstance(param, int):
+                            label = f'{param}'
+                        elif param >= 0.01:
                             label = f'{param:.2f}'
                         elif param >= 0.001:
                             label = f'{param:.3f}'
@@ -308,7 +336,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         
         # Plot 2: Explained Variance vs L0 (minimize L0, maximize explained variance)
         ax2 = axes[1]
-        for sae_type in ['relu', 'gated']:
+        for sae_type in ['relu', 'gated', 'topk', 'probabilistic']:
             if data.get(sae_type):
                 # Extract layer-specific data WITH FILTERING
                 l0_values = []
@@ -326,8 +354,8 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             l0_values.append(l0)
                             ev_values.append(ev)
                             
-                            # Get sparsity coefficient for labeling
-                            param_labels.append(run_data.get('sparsity_coeff', None))
+                            # Get parameter for labeling
+                            param_labels.append(run_data.get('param_value', None))
                 
                 if not l0_values:
                     continue
@@ -347,8 +375,10 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, ev_values, param_labels)):
                     if param is not None:
-                        # Format label for display (sparsity coefficients)
-                        if param >= 0.01:
+                        # Format label for display based on parameter type
+                        if isinstance(param, int):
+                            label = f'{param}'
+                        elif param >= 0.01:
                             label = f'{param:.2f}'
                         elif param >= 0.001:
                             label = f'{param:.3f}'
@@ -386,7 +416,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         
         # Plot 3: Alive Dictionary Elements vs L0
         ax3 = axes[2]
-        for sae_type in ['relu', 'gated']:
+        for sae_type in ['relu', 'gated', 'topk', 'probabilistic']:
             if data.get(sae_type):
                 # Extract layer-specific data WITH FILTERING
                 l0_values = []
@@ -404,8 +434,8 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             l0_values.append(l0)
                             alive_values.append(alive)
                             
-                            # Get sparsity coefficient for labeling
-                            param_labels.append(run_data.get('sparsity_coeff', None))
+                            # Get parameter for labeling
+                            param_labels.append(run_data.get('param_value', None))
                 
                 if not l0_values:
                     continue
@@ -425,8 +455,10 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, alive_values, param_labels)):
                     if param is not None:
-                        # Format label for display (sparsity coefficients)
-                        if param >= 0.01:
+                        # Format label for display based on parameter type
+                        if isinstance(param, int):
+                            label = f'{param}'
+                        elif param >= 0.01:
                             label = f'{param:.2f}'
                         elif param >= 0.001:
                             label = f'{param:.3f}'
@@ -512,6 +544,8 @@ def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
     display_names = {
         'relu': 'ReLU',
         'gated': 'Gated',
+        'topk': 'TopK',
+        'probabilistic': 'Probabilistic',
     }
     
     for layer_name in layers:
@@ -519,7 +553,7 @@ def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
         print(f"LAYER: {layer_name}")
         print(f"{'='*80}")
         
-        for sae_type in ['relu', 'gated']:
+        for sae_type in ['relu', 'gated', 'topk', 'probabilistic']:
             if not data.get(sae_type):
                 continue
             
@@ -583,7 +617,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Plot Pareto curves for SAE types: relu and gated for GPT-2 experiments"
+        description="Plot Pareto curves for SAE types: relu, gated, topk, and probabilistic for GPT-2 experiments"
     )
     parser.add_argument(
         "--projects",
@@ -601,8 +635,8 @@ def main():
     parser.add_argument(
         "--max-mse",
         type=float,
-        default=0.001,
-        help="Maximum MSE threshold for filtering (default: 0.001)"
+        default=float('inf'),
+        help="Maximum MSE threshold for filtering (default: inf - no filtering)"
     )
     parser.add_argument(
         "--max-l0",

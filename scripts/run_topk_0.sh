@@ -4,10 +4,6 @@ conda activate sae
 
 export CUDA_VISIBLE_DEVICES=4
 
-python evaluation.py \
---wandb_project raymondl/gpt2-small \
---filter_runs_by_name k_16
-
 python run_experiments.py \
 --base_config configs/gpt2/gpt2-topk.yaml \
 --sweep_config configs/gpt2/sweep/topk_sweep_0.yaml \
@@ -15,8 +11,4 @@ python run_experiments.py \
 
 python evaluation.py \
 --wandb_project raymondl/gpt2-small \
---filter_runs_by_name k_48
-
-python evaluation.py \
---wandb_project raymondl/gpt2-small \
---filter_runs_by_name k_80
+--filter_runs_by_name k_24
