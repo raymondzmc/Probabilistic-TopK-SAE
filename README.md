@@ -13,6 +13,11 @@ export XDG_CACHE_HOME=/home/cli2711/scratch/.cache
 export HF_HOME=/home/cli2711/scratch/.cache/huggingface
 
 
+export XDG_CACHE_HOME=/scratch/.cache
+export HF_HOME=/scratch/.cache/huggingface
+
+
+
 python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
 --sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_0.yaml \
 --output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_0

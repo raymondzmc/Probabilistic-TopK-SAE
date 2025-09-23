@@ -41,7 +41,7 @@
 			"justMyCode": false,
 			"args": [
 				"--wandb_project", "lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B",
-				"--filter_runs_by_name", "topk_k_80"
+				// "--filter_runs_by_name", "topk_k_80"
 				]
 			}		
 		]
