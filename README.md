@@ -1,6 +1,6 @@
 module load gcc arrow/21.0.0
 
-pip install torch torchvision
+pip install torch
 pip install pyyaml
 pip install wandb
 pip install jaxtyping
