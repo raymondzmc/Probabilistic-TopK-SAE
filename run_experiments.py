@@ -6,7 +6,7 @@ Usage:
     python run_experiments.py --base_config configs/tinystories-gated.yaml --sweep_config sweep_configs/default_sweep.yaml
     python run_experiments.py --base_config configs/tinystories-hardconcrete.yaml --sweep_config sweep_configs/quick_test.yaml --devices cuda:0,cuda:1
 """
-
+import os
 import argparse
 import subprocess
 import time
@@ -493,9 +493,9 @@ def main():
                         help="Just show available devices and exit")
     parser.add_argument("--limit", type=int, default=None,
                         help="Override max_experiments from sweep config")
-    parser.add_argument("--output_dir", type=str, default=None,
+    parser.add_argument("--output_dir", type=str, default='./output',
                         help="Directory to save experiment configs (for inspection)")
-    
+
     args = parser.parse_args()
     
     # Show devices if requested

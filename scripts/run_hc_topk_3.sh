@@ -9,6 +9,6 @@ python run_experiments.py \
 --sweep_config configs/gpt2/sweep/hc_topk_sweep_3.yaml \
 --output_dir experiment_outputs/hc_topk_sweep_3
 
-python evaluation.py \
---wandb_project raymondl/gpt2-small \
---filter_runs_by_name k_48
+# python evaluation.py \
+# --wandb_project raymondl/gpt2-small \
+# --filter_runs_by_name gated_sparsity_coeff_0.02

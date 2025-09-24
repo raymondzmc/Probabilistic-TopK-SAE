@@ -73,6 +73,11 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
     for run in runs:
         name_lower = run.name.lower()
         
+        # Skip specific runs
+        runs_to_exclude = ['gated_sparsity_coeff_0.04', 'gated_sparsity_coeff_0.03']
+        if run.name in runs_to_exclude:
+            continue
+            
         # Determine SAE type based on run name patterns - ReLU, Gated, TopK, and Probabilistic for GPT-2
         sae_type = None
         if 'hard_concrete' in name_lower:
@@ -219,7 +224,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         'relu': '#ff7f0e',                            # Orange
         'gated': '#2ca02c',                           # Green
         'topk': '#1f77b4',                            # Blue
-        'probabilistic': '#9467bd',                   # Purple
+        'probabilistic': '#d62728',                   # Red
     }
     
     # Marker styles - more distinct shapes
@@ -235,7 +240,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         'relu': 'ReLU',
         'gated': 'Gated',
         'topk': 'TopK',
-        'probabilistic': 'Probabilistic',
+        'probabilistic': 'Probabilistic TopK (ours)',
     }
     
     # Track filtered statistics
@@ -247,8 +252,8 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         print(f"\nProcessing layer: {layer_name}")
         layer_filtered = 0
         
-        # Create figure with 3 subplots for this layer - even larger size for better visibility
-        fig, axes = plt.subplots(1, 3, figsize=(36, 12))
+        # Create figure with 2 subplots for this layer - even larger size for better visibility
+        fig, axes = plt.subplots(1, 2, figsize=(24, 12))
         
         # Plot 1: MSE vs L0 (minimize both)
         ax1 = axes[0]
@@ -290,7 +295,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax1.scatter(l0_values, mse_values, 
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=100, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=150, label=f'{labels[sae_type]} runs')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, mse_values, param_labels)):
@@ -306,7 +311,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             label = f'{param:.0e}'
                         ax1.annotate(label, (x, y), 
                                    xytext=(3, 3), textcoords='offset points',
-                                   fontsize=6, alpha=0.6, color=colors[sae_type])
+                                   fontsize=10, alpha=0.6, color=colors[sae_type])
                 
                 # Highlight and connect Pareto frontier points
                 if np.any(is_pareto):
@@ -319,19 +324,19 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                     pareto_mse = pareto_mse[sort_idx]
                     
                     ax1.plot(pareto_l0, pareto_mse, 
-                            color=colors[sae_type], linewidth=2, alpha=0.8,
-                            label=f'{labels[sae_type]} Pareto')
+                            color=colors[sae_type], linewidth=2, alpha=0.8)
                     ax1.scatter(pareto_l0, pareto_mse,
                                color=colors[sae_type], marker=markers[sae_type],
-                               s=120, edgecolors='black', linewidth=2, zorder=5)
+                               s=180, edgecolors='black', linewidth=2, zorder=5)
         
-        ax1.set_xlabel('L0 Sparsity', fontsize=11)
-        ax1.set_ylabel('MSE', fontsize=11)
-        ax1.set_title('MSE vs L0 Sparsity\n(Lower is better for both)', fontsize=12)
+        ax1.set_xlabel('L0 Sparsity', fontsize=20)
+        ax1.set_ylabel('MSE ← (better)', fontsize=20)
+        ax1.set_title('MSE vs L0', fontsize=24, pad=20)
         if use_log_scale:
             ax1.set_xscale('log')
             ax1.set_yscale('log')
-        ax1.legend(loc='upper right', fontsize=8)
+        ax1.legend(loc='upper right', fontsize=16)
+        ax1.tick_params(axis='both', labelsize=18)
         ax1.grid(True, alpha=0.3, which='both')
         
         # Plot 2: Explained Variance vs L0 (minimize L0, maximize explained variance)
@@ -370,7 +375,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax2.scatter(l0_values, ev_values,
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=100, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=150, label=f'{labels[sae_type]} runs')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, ev_values, param_labels)):
@@ -386,7 +391,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             label = f'{param:.0e}'
                         ax2.annotate(label, (x, y), 
                                    xytext=(3, 3), textcoords='offset points',
-                                   fontsize=6, alpha=0.6, color=colors[sae_type])
+                                   fontsize=10, alpha=0.6, color=colors[sae_type])
                 
                 # Highlight and connect Pareto frontier points
                 if np.any(is_pareto):
@@ -399,100 +404,20 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                     pareto_ev = pareto_ev[sort_idx]
                     
                     ax2.plot(pareto_l0, pareto_ev,
-                            color=colors[sae_type], linewidth=2, alpha=0.8,
-                            label=f'{labels[sae_type]} Pareto')
+                            color=colors[sae_type], linewidth=2, alpha=0.8)
                     ax2.scatter(pareto_l0, pareto_ev,
                                color=colors[sae_type], marker=markers[sae_type],
-                               s=120, edgecolors='black', linewidth=2, zorder=5)
+                               s=180, edgecolors='black', linewidth=2, zorder=5)
         
-        ax2.set_xlabel('L0 Sparsity', fontsize=11)
-        ax2.set_ylabel('Explained Variance', fontsize=11)
-        ax2.set_title('Explained Variance vs L0 Sparsity\n(Lower L0 better, Higher EV better)', fontsize=12)
+        ax2.set_xlabel('L0 Sparsity', fontsize=20)
+        ax2.set_ylabel('Explained Variance → (better)', fontsize=20)
+        ax2.set_title('Explained Variance vs L0', fontsize=24, pad=20)
         if use_log_scale:
             ax2.set_xscale('log')
             # Don't use log scale for explained variance as it goes from 0 to 1
-        ax2.legend(loc='lower right', fontsize=8)
+        ax2.legend(loc='lower right', fontsize=16)
+        ax2.tick_params(axis='both', labelsize=18)
         ax2.grid(True, alpha=0.3, which='both')
-        
-        # Plot 3: Alive Dictionary Elements vs L0
-        ax3 = axes[2]
-        for sae_type in ['relu', 'gated', 'topk', 'probabilistic']:
-            if data.get(sae_type):
-                # Extract layer-specific data WITH FILTERING
-                l0_values = []
-                alive_values = []
-                param_labels = []
-                
-                for run_data in data[sae_type]:
-                    if layer_name in run_data['layers']:
-                        l0 = run_data['layers'][layer_name]['l0']
-                        mse = run_data['layers'][layer_name]['mse']
-                        alive = run_data['layers'][layer_name]['alive_dict_components']
-                        
-                        # Apply filters
-                        if min_l0 <= l0 <= max_l0 and min_mse <= mse <= max_mse:
-                            l0_values.append(l0)
-                            alive_values.append(alive)
-                            
-                            # Get parameter for labeling
-                            param_labels.append(run_data.get('param_value', None))
-                
-                if not l0_values:
-                    continue
-                    
-                l0_values = np.array(l0_values)
-                alive_values = np.array(alive_values)
-                
-                # Find Pareto frontier (minimize L0, maximize alive components)
-                is_pareto = find_pareto_frontier(l0_values, -alive_values,  # Negate to find max
-                                                minimize_x=True, minimize_y=True)
-                
-                # Plot all points
-                ax3.scatter(l0_values, alive_values,
-                           color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=100, label=f'{labels[sae_type]} runs')
-                
-                # Add parameter labels for all points
-                for i, (x, y, param) in enumerate(zip(l0_values, alive_values, param_labels)):
-                    if param is not None:
-                        # Format label for display based on parameter type
-                        if isinstance(param, int):
-                            label = f'{param}'
-                        elif param >= 0.01:
-                            label = f'{param:.2f}'
-                        elif param >= 0.001:
-                            label = f'{param:.3f}'
-                        else:
-                            label = f'{param:.0e}'
-                        ax3.annotate(label, (x, y), 
-                                   xytext=(3, 3), textcoords='offset points',
-                                   fontsize=6, alpha=0.6, color=colors[sae_type])
-                
-                # Highlight and connect Pareto frontier points
-                if np.any(is_pareto):
-                    pareto_l0 = l0_values[is_pareto]
-                    pareto_alive = alive_values[is_pareto]
-                    
-                    # Sort for line plotting
-                    sort_idx = np.argsort(pareto_l0)
-                    pareto_l0 = pareto_l0[sort_idx]
-                    pareto_alive = pareto_alive[sort_idx]
-                    
-                    ax3.plot(pareto_l0, pareto_alive,
-                            color=colors[sae_type], linewidth=2, alpha=0.8,
-                            label=f'{labels[sae_type]} Pareto')
-                    ax3.scatter(pareto_l0, pareto_alive,
-                               color=colors[sae_type], marker=markers[sae_type],
-                               s=120, edgecolors='black', linewidth=2, zorder=5)
-        
-        ax3.set_xlabel('L0 Sparsity', fontsize=11)
-        ax3.set_ylabel('Alive Dictionary Components', fontsize=11)
-        ax3.set_title('Alive Dictionary Components vs L0\n(Lower L0 better, Higher alive better)', fontsize=12)
-        if use_log_scale:
-            ax3.set_xscale('log')
-            ax3.set_yscale('log')
-        ax3.legend(loc='lower right', fontsize=8)
-        ax3.grid(True, alpha=0.3, which='both')
         
         # Adjust layout and save
         layer_display_name = layer_name.replace('.', '_')
@@ -501,8 +426,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         else:
             filter_str = f'MSE ∈ [{min_mse}, {max_mse}], L0 ∈ [{min_l0}, {max_l0}]'
         scale_str = ' (log scale)' if use_log_scale else ''
-        plt.suptitle(f'Pareto Curves: All SAE Types - Layer {layer_name}{scale_str}\n({filter_str})', 
-                    fontsize=14, y=1.02)
+        # Removed suptitle as requested
         plt.tight_layout()
         
         # Save figure
@@ -527,6 +451,132 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 print(f"  {sae_type}: {count} points")
 
 
+def plot_alive_dictionary_components(data: Dict[str, List[Dict]], layers: List[str], 
+                                   output_dir: Path = Path("plots"),
+                                   max_mse: float = float('inf'), max_l0: float = float('inf'),
+                                   min_mse: float = 0.0, min_l0: float = 0.0):
+    """
+    Create separate plots for Alive Dictionary Components vs L0 with all lines connected.
+    
+    Args:
+        data: Dictionary with SAE type data
+        layers: List of layer names
+        output_dir: Output directory for plots
+        max_mse: Maximum MSE threshold for filtering
+        max_l0: Maximum L0 threshold for filtering
+        min_mse: Minimum MSE threshold for filtering
+        min_l0: Minimum L0 threshold for filtering
+    """
+    output_dir.mkdir(exist_ok=True)
+    
+    # Color scheme and markers (same as main plots)
+    colors = {
+        'relu': '#ff7f0e',                            # Orange
+        'gated': '#2ca02c',                           # Green
+        'topk': '#1f77b4',                            # Blue
+        'probabilistic': '#d62728',                   # Red
+    }
+    
+    markers = {
+        'relu': 's',                                  # Square
+        'gated': '^',                                 # Triangle up
+        'topk': 'o',                                  # Circle
+        'probabilistic': 'D',                         # Diamond
+    }
+    
+    labels = {
+        'relu': 'ReLU',
+        'gated': 'Gated',
+        'topk': 'TopK',
+        'probabilistic': 'Probabilistic TopK (ours)',
+    }
+    
+    # Create a figure for each layer
+    for layer_idx, layer_name in enumerate(layers):
+        print(f"\nProcessing alive components for layer: {layer_name}")
+        
+        # Create figure with single subplot
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        
+        for sae_type in ['relu', 'gated', 'topk', 'probabilistic']:
+            if data.get(sae_type):
+                # Extract layer-specific data WITH FILTERING
+                l0_values = []
+                alive_values = []
+                param_labels = []
+                
+                for run_data in data[sae_type]:
+                    if layer_name in run_data['layers']:
+                        l0 = run_data['layers'][layer_name]['l0']
+                        mse = run_data['layers'][layer_name]['mse']
+                        alive = run_data['layers'][layer_name]['alive_dict_components']
+                        
+                        # Apply filters
+                        if min_l0 <= l0 <= max_l0 and min_mse <= mse <= max_mse:
+                            l0_values.append(l0)
+                            alive_values.append(alive)
+                            param_labels.append(run_data.get('param_value', None))
+                
+                if not l0_values:
+                    continue
+                    
+                l0_values = np.array(l0_values)
+                alive_values = np.array(alive_values)
+                
+                # Sort by L0 for line plotting
+                sort_idx = np.argsort(l0_values)
+                l0_sorted = l0_values[sort_idx]
+                alive_sorted = alive_values[sort_idx]
+                param_sorted = [param_labels[i] for i in sort_idx]
+                
+                # Plot all points
+                ax.scatter(l0_sorted, alive_sorted,
+                          color=colors[sae_type], marker=markers[sae_type],
+                          alpha=0.7, s=150, label=f'{labels[sae_type]} runs', zorder=3)
+                
+                # Connect all points with lines
+                ax.plot(l0_sorted, alive_sorted,
+                       color=colors[sae_type], linewidth=3, alpha=0.8, zorder=2)
+                
+                # Add parameter labels for all points
+                for i, (x, y, param) in enumerate(zip(l0_sorted, alive_sorted, param_sorted)):
+                    if param is not None:
+                        # Format label for display based on parameter type
+                        if isinstance(param, int):
+                            label = f'{param}'
+                        elif param >= 0.01:
+                            label = f'{param:.2f}'
+                        elif param >= 0.001:
+                            label = f'{param:.3f}'
+                        else:
+                            label = f'{param:.0e}'
+                        ax.annotate(label, (x, y), 
+                                   xytext=(3, 3), textcoords='offset points',
+                                   fontsize=10, alpha=0.6, color=colors[sae_type])
+        
+        ax.set_xlabel('L0 Sparsity', fontsize=20)
+        ax.set_ylabel('Alive Dictionary Components → (better)', fontsize=20)
+        ax.set_title('Alive Dictionary Components vs L0', fontsize=24, pad=20)
+        ax.legend(loc='lower right', fontsize=16)
+        ax.tick_params(axis='both', labelsize=18)
+        ax.grid(True, alpha=0.3, which='both')
+        
+        # Adjust layout and save
+        layer_display_name = layer_name.replace('.', '_')
+        plt.tight_layout()
+        
+        # Save figure
+        output_path = output_dir / f"alive_components_{layer_display_name}.png"
+        plt.savefig(output_path, bbox_inches='tight', dpi=300)
+        print(f"  Saved alive components plot to: {output_path}")
+        
+        # Also save as SVG
+        output_path_svg = output_dir / f"alive_components_{layer_display_name}.svg"
+        plt.savefig(output_path_svg, bbox_inches='tight', format='svg')
+        
+        plt.close()
+
+
 def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
                         max_mse: float = float('inf'), max_l0: float = float('inf'),
                         min_mse: float = 0.0, min_l0: float = 0.0):
@@ -545,7 +595,7 @@ def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
         'relu': 'ReLU',
         'gated': 'Gated',
         'topk': 'TopK',
-        'probabilistic': 'Probabilistic',
+        'probabilistic': 'Probabilistic TopK',
     }
     
     for layer_name in layers:
@@ -681,6 +731,14 @@ def main():
                           max_mse=args.max_mse, max_l0=args.max_l0,
                           min_mse=args.min_mse, min_l0=args.min_l0,
                           use_log_scale=use_log_scale)
+    
+    # Create alive dictionary components plots
+    print("\n" + "=" * 80)
+    print("Creating Alive Dictionary Components plots...")
+    print("=" * 80)
+    plot_alive_dictionary_components(data, layers, Path(args.output_dir),
+                                   max_mse=args.max_mse, max_l0=args.max_l0,
+                                   min_mse=args.min_mse, min_l0=args.min_l0)
     
     # Print summary with filtering
     print_pareto_summary(data, layers, max_mse=args.max_mse, max_l0=args.max_l0,

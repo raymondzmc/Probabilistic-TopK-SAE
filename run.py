@@ -19,13 +19,8 @@ from data import create_dataloaders
 from models import (
     SAETransformer,
     SAETransformerOutput,
-    HardConcreteSAEConfig,
-    HardConcreteSAE,
-    LagrangianHardConcreteSAE,
-    LagrangianHardConcreteSAEConfig,
 )
 from models.loader import load_tlens_model, load_pretrained_saes
-from utils.enums import SAEType
 from utils.misc import set_seed, get_run_name
 from utils.io import load_config, save_module
 from utils.constants import CONFIG_FILE
@@ -314,7 +309,8 @@ def run(config_path_or_obj: Path | str | Config, device: torch.device | None = N
             project=config.wandb_project,
             name=run_name,
             tags=config.wandb_tags,
-            save_code=True
+            save_code=True,
+            dir=config.save_dir,
         )
         wandb.config.update(config.model_dump(mode="json"))
     

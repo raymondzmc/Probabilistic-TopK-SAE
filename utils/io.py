@@ -403,7 +403,12 @@ def load_activation_data_from_wandb(
     parallel_download: bool = True,
     max_workers: int = 4
 ) -> tuple[dict[str, dict[str, torch.Tensor]], list[list[str]] | None]:
-    """Load accumulated activation data and token IDs from Wandb artifacts.
+    """Load accumulated activation data and token IDs from local files or Wandb artifacts.
+    
+    Checks for local files in the following order:
+    1. activation_data_{run_id}/ - Created when using skip_upload=True
+    2. cached_{run_id}/ - Created from previous Wandb downloads
+    3. Wandb artifacts - Downloads from Wandb if no local files found
     
     Supports both single artifact format and chunked artifact format.
     
@@ -423,33 +428,38 @@ def load_activation_data_from_wandb(
         RuntimeError: If the files exist but can't be loaded
     """
     try:
-        # Check for local cache first
+        # Check for local files first
         output_path = Path(output_path)
+        
+        # Check for local activation data directory (created when skip_upload=True)
+        local_activation_dir = output_path / f"activation_data_{run_id}"
         local_cache_dir = output_path / f"cached_{run_id}"
         
-        if use_cached and local_cache_dir.exists():
-            print(f"Found local cache at: {local_cache_dir}")
-            print("Loading from local cache (skip download)...")
-            
-            accumulated_data: dict[str, dict[str, torch.Tensor]] = {}
-            all_token_ids: list[list[str]] | None = None
-            
-            # Load from local cache
-            for file_path in local_cache_dir.glob("*.pt"):
-                filename = file_path.name
-                if filename == "all_token_ids.pt":
-                    all_token_ids = torch.load(file_path, map_location='cpu')
-                    print(f"  Loaded token IDs from cache")
-                else:
-                    safe_layer_name = filename[:-3]
-                    sae_pos = safe_layer_name.replace("--", ".")
-                    data = torch.load(file_path, map_location='cpu')
-                    accumulated_data[sae_pos] = data
-                    print(f"  Loaded {sae_pos} from cache")
-            
-            if accumulated_data:
-                print(f"Successfully loaded {len(accumulated_data)} SAE positions from local cache")
-                return accumulated_data, all_token_ids
+        # Try local activation data directory first, then cached directory
+        for local_dir in [local_activation_dir, local_cache_dir]:
+            if use_cached and local_dir.exists():
+                print(f"Found local data at: {local_dir}")
+                print("Loading from local files (skip download)...")
+                
+                accumulated_data: dict[str, dict[str, torch.Tensor]] = {}
+                all_token_ids: list[list[str]] | None = None
+                
+                # Load from local directory
+                for file_path in local_dir.glob("*.pt"):
+                    filename = file_path.name
+                    if filename == "all_token_ids.pt":
+                        all_token_ids = torch.load(file_path, map_location='cpu')
+                        print(f"  Loaded token IDs from local")
+                    else:
+                        safe_layer_name = filename[:-3]
+                        sae_pos = safe_layer_name.replace("--", ".")
+                        data = torch.load(file_path, map_location='cpu')
+                        accumulated_data[sae_pos] = data
+                        print(f"  Loaded {sae_pos} from local")
+                
+                if accumulated_data:
+                    print(f"Successfully loaded {len(accumulated_data)} SAE positions from local files")
+                    return accumulated_data, all_token_ids
         
         # Initialize Wandb API
         api = wandb.Api()
