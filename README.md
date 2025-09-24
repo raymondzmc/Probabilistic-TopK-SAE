@@ -134,13 +134,48 @@ CUDA_VISIBLE_DEVICES=1 uv run run_experiments.py --base_config configs/qwen3-0.6
 --output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_2-1
 
 
+
+
+
+
+source .env/bin/activate
+
 export XDG_CACHE_HOME=/home/ubuntu/Anji/.cache
 export HF_HOME=/home/ubuntu/Anji/.cache/huggingface
 
 
+CUDA_VISIBLE_DEVICES=0 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-gated.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/gated_sweep_0.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/gated_sweep_0
+
+CUDA_VISIBLE_DEVICES=1 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-gated.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/gated_sweep_1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/gated_sweep_1
+
+CUDA_VISIBLE_DEVICES=2 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-gated.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/gated_sweep_2.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/gated_sweep_2
+
+CUDA_VISIBLE_DEVICES=3 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-gated.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/gated_sweep_3.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/gated_sweep_3
 
 
+CUDA_VISIBLE_DEVICES=4 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-relu.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/relu_sweep_0.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/relu_sweep_0
 
+CUDA_VISIBLE_DEVICES=5 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-relu.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/relu_sweep_1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/relu_sweep_1
+
+CUDA_VISIBLE_DEVICES=6 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-relu.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/relu_sweep_2.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/relu_sweep_2
+
+CUDA_VISIBLE_DEVICES=7 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-relu.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/relu_sweep_3.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/relu_sweep_3
 
 
 
