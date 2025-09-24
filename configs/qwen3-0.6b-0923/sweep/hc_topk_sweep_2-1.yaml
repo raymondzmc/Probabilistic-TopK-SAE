@@ -1,0 +1,4 @@
+k: [64]
+magnitude_scale: [1e-4]
+initial_beta: [5.0]
+seed: 43
