@@ -112,6 +112,25 @@ export XDG_CACHE_HOME=/home/ubuntu/anji/.cache
 export HF_HOME=/home/ubuntu/anji/.cache/huggingface
 
 
+
+
+CUDA_VISIBLE_DEVICES=0 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/topk_sweep_3.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/topk_sweep_3
+
+CUDA_VISIBLE_DEVICES=1 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/hc_topk_sweep_3.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_3
+
+
+
+
+
+
+
+
+
+
 python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
 --filter_runs_by_name topk_k_64
 
