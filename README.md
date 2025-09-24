@@ -7,6 +7,25 @@ pip install jaxtyping
 pip install huggingface_hub
 pip install einops
 
+pip install numpy
+pip install datasets
+pip install transformers
+
+
+
+uv pip install torch
+uv pip install pyyaml
+uv pip install wandb
+uv pip install jaxtyping
+uv pip install huggingface_hub
+uv pip install einops
+uv pip install numpy
+uv pip install datasets
+uv pip install transformers
+uv pip install transformer_lens
+uv pip install dotenv
+
+
 XDG_CACHE_HOME=/home/cli2711/scratch/.cache HF_HOME=/home/cli2711/scratch/.cache/huggingface
 
 export XDG_CACHE_HOME=/home/cli2711/scratch/.cache
@@ -59,3 +78,35 @@ python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.ya
 python run_experiments.py --base_config configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml \
 --sweep_config configs/qwen3-0.6b/sweep/hc_topk_sweep_5.yaml \
 --output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_5
+
+
+
+uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/hc_topk_sweep_0.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_0
+
+uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/hc_topk_sweep_1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_1
+
+CUDA_VISIBLE_DEVICES=0 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/hc_topk_sweep_2.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_2
+
+
+CUDA_VISIBLE_DEVICES=1 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/topk_sweep_0.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/topk_sweep_0
+
+CUDA_VISIBLE_DEVICES=2 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/topk_sweep_1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/topk_sweep_1
+
+CUDA_VISIBLE_DEVICES=3 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/topk_sweep_2.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/topk_sweep_2
+
+
+
+export XDG_CACHE_HOME=/home/ubuntu/anji/.cache
+export HF_HOME=/home/ubuntu/anji/.cache/huggingface
