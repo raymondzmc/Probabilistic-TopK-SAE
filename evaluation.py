@@ -137,7 +137,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
             except Exception as e:
                 print(f"No existing explanations found: {e}")
                 print("Will compute explanations from scratch")
-        if accumulated_data is None or len(metrics) == 0:
+        if (accumulated_data is None and args.save_activation_data) or len(metrics) == 0:
             print(f"Obtaining features for {run_id}")
 
             # Load model and dataloader
@@ -269,6 +269,9 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     skip_upload=args.skip_upload,
                     chunk_upload=not args.no_chunk_upload  # Default is True unless disabled
                 )
+                
+        else:
+            stop = 0
 
         # Collect metrics for pareto plot
         run_metrics = {
@@ -287,11 +290,14 @@ def run_evaluation(args: argparse.Namespace) -> None:
             
             # Initialize dict to store all explanation scores for this run
             all_explanation_scores = {}
+            
+            openai_api_key = None
+            together_ai_api_key= None
 
             # Initialize explainer
             explainer = DefaultExplainer(
                 client=OpenAIClient(
-                    api_key=settings.openai_api_key,
+                    api_key=openai_api_key,
                     model=args.explanation_model,
                 ),
                 tokenizer=tokenizer,
@@ -307,7 +313,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 # Count occurrences of each neuron and calculate total activation
                 unique_neurons = torch.unique(data['neuron_indices'], return_counts=False)
                 neuron_total_activations = []
-                for neuron_idx in unique_neurons:
+                for neuron_idx in tqdm(unique_neurons):
                     neuron_mask = data['neuron_indices'] == neuron_idx
                     neuron_activations = data['nonzero_activations'][neuron_mask].float()
                     neuron_total_activations.append(neuron_activations.max(dim=0).values)
@@ -324,7 +330,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 print(f"  Processing {len(sampled_neurons)} neurons for explanation...")
                 
                 # Process each neuron for explanation
-                for neuron_idx in sampled_neurons:
+                for neuron_idx in tqdm(sampled_neurons):
                     neuron_idx_item = neuron_idx.item()
                     feature = Feature(
                         sae_pos=sae_pos,
@@ -357,7 +363,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     
                     # Create scoring client for Detection and Fuzz scorers
                     score_client = TogetherAIClient(
-                        api_key=settings.together_ai_api_key,  # Use together API key
+                        api_key=together_ai_api_key,  # Use together API key
                         model=args.scoring_model
                     )
                     
@@ -393,6 +399,8 @@ def run_evaluation(args: argparse.Namespace) -> None:
                         'detection_score': detection_score,
                         'fuzz_score': fuzz_score,
                     })
+                    
+                    stop = 0
             
             # Save explanations to Wandb
             try:

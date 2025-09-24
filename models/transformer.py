@@ -1,3 +1,4 @@
+import os
 import torch
 import tqdm
 import yaml
@@ -91,6 +92,7 @@ class SAETransformer(torch.nn.Module):
             
             # Create and move SAE to device
             self.saes[self.all_sae_positions[i]] = sae_cls(**filtered_config_dict).to(device)
+            print(f"Created SAE at position {self.raw_sae_positions[i]} with config: {filtered_config_dict}")
 
     def forward(
         self,
@@ -387,7 +389,7 @@ class SAETransformer(torch.nn.Module):
         """
         api = wandb.Api()
         run: Run = api.run(wandb_project_run_id)
-        model_cache_dir = Path(WANDB_CACHE_DIR) / wandb_project_run_id
+        model_cache_dir = Path(os.environ["WANDB_CACHE_DIR"]) / wandb_project_run_id
 
         train_config_files_remote = [file for file in run.files() if file.name.endswith(CONFIG_FILE)]
         assert len(train_config_files_remote) > 0, f"Cannot find config file for wandb run {wandb_project_run_id}."
@@ -402,13 +404,23 @@ class SAETransformer(torch.nn.Module):
         latest_checkpoint_remote = sorted(
             checkpoints, key=lambda x: int(x.name.split(".pt")[0].split("_")[-1])
         )[-1]
-        latest_checkpoint_file = latest_checkpoint_remote.download(
-            exist_ok=True, replace=True, root=model_cache_dir
-        ).name
-        assert latest_checkpoint_file is not None, "Failed to download the latest checkpoint."
-        return cls.from_local_path(
-            checkpoint_file=latest_checkpoint_file, config_file=train_config_file
-        )
+        
+        try:
+            latest_checkpoint_file = latest_checkpoint_remote.download(
+                exist_ok=True, replace=False, root=model_cache_dir
+            ).name
+            assert latest_checkpoint_file is not None, "Failed to download the latest checkpoint."
+            return cls.from_local_path(
+                checkpoint_file=latest_checkpoint_file, config_file=train_config_file
+            )
+        except Exception as e:
+            latest_checkpoint_file = latest_checkpoint_remote.download(
+                exist_ok=True, replace=True, root=model_cache_dir
+            ).name
+            assert latest_checkpoint_file is not None, "Failed to download the latest checkpoint."
+            return cls.from_local_path(
+                checkpoint_file=latest_checkpoint_file, config_file=train_config_file
+            )
 
     @classmethod
     def from_local_path(

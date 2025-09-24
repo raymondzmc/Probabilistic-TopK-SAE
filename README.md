@@ -110,3 +110,13 @@ CUDA_VISIBLE_DEVICES=3 uv run run_experiments.py --base_config configs/qwen3-0.6
 
 export XDG_CACHE_HOME=/home/ubuntu/anji/.cache
 export HF_HOME=/home/ubuntu/anji/.cache/huggingface
+
+
+python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name topk_k_64
+
+python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name topk_k_32
+
+python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name topk_k_16

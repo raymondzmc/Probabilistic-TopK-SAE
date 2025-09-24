@@ -1,0 +1,4 @@
+# ReLU SAE Hyperparameter Sweep Configuration
+
+# Sparsity coefficient sweep  
+sparsity_coeff: [10]
