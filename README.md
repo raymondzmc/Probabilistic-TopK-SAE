@@ -125,6 +125,20 @@ CUDA_VISIBLE_DEVICES=1 uv run run_experiments.py --base_config configs/qwen3-0.6
 
 
 
+CUDA_VISIBLE_DEVICES=0 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/hc_topk_sweep_2.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_2
+
+CUDA_VISIBLE_DEVICES=1 uv run run_experiments.py --base_config configs/qwen3-0.6b-0923/qwen3-0.6b-hc_topk.yaml \
+--sweep_config configs/qwen3-0.6b-0923/sweep/hc_topk_sweep_2-1.yaml \
+--output_dir experiment_outputs/qwen3-0.6b/hc_topk_sweep_2-1
+
+
+export XDG_CACHE_HOME=/home/ubuntu/Anji/.cache
+export HF_HOME=/home/ubuntu/Anji/.cache/huggingface
+
+
+
 
 
 
