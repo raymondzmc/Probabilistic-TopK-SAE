@@ -71,8 +71,17 @@ def run_evaluation(args: argparse.Namespace) -> None:
         run_id = run.id
         run_config = run.config
         run_config['data']['n_eval_samples'] = args.n_eval_samples
-        model = SAETransformer.from_wandb(f"{args.wandb_project}/{run_id}").to(device)
-        model.saes.eval()
+        try:
+            model = SAETransformer.from_wandb(f"{args.wandb_project}/{run_id}").to(device)
+            model.saes.eval()
+            if args.sae_position is None:
+                raw_sae_positions = model.raw_sae_positions
+            else:
+                assert args.sae_position in model.raw_sae_positions, f"SAE position {args.sae_position} not found in model"
+                raw_sae_positions = [args.sae_position]
+        except Exception as e:
+            print(f"Error loading model from Wandb: {e}")
+            continue
         
         # Override n_train_samples if specified (to avoid slow data skipping)
         if args.override_n_train_samples is not None:
@@ -148,7 +157,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
             # Create placeholder tensors for efficient batch accumulation
             # Note: For feature extraction, 'nonzero_activations' stores probabilities for Bayesian SAEs, activations for ReLU SAEs
             accumulated_data = {}
-            for sae_pos in model.raw_sae_positions:
+            for sae_pos in raw_sae_positions:
                 accumulated_data[sae_pos] = {
                     'nonzero_activations': [],
                     'data_indices': [],
@@ -186,7 +195,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                         compute_loss=True,
                     )
 
-                for sae_pos in model.raw_sae_positions:
+                for sae_pos in raw_sae_positions:
                     sae_output = output.sae_outputs[sae_pos]
                     
                     # Compute MSE using the same logic as utils/metrics.py
@@ -235,7 +244,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 chunked_tokens = [tokenizer.convert_ids_to_tokens(token_ids_chunked[i]) for i in range(chunked_batch_size)]
                 all_token_ids.extend(chunked_tokens)
 
-            for sae_pos in model.raw_sae_positions:
+            for sae_pos in raw_sae_positions:
                 if args.save_activation_data:
                     accumulated_data[sae_pos]['nonzero_activations'] = torch.cat(accumulated_data[sae_pos]['nonzero_activations'], dim=0).contiguous()
                     accumulated_data[sae_pos]['data_indices'] = torch.cat(accumulated_data[sae_pos]['data_indices'], dim=0).contiguous()
@@ -300,7 +309,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 activations=False,
             )
 
-            for sae_pos in model.raw_sae_positions:
+            for sae_pos in raw_sae_positions:
                 data = accumulated_data[sae_pos]
                 all_explanation_scores[sae_pos] = []
                 
@@ -313,86 +322,99 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     neuron_total_activations.append(neuron_activations.max(dim=0).values)
 
                 neuron_total_activations = torch.stack(neuron_total_activations)
-                sampled_indices = stratified_sample_by_max_activation(
-                    neuron_activations=neuron_total_activations,
-                    n_samples=args.num_neurons,
-                    n_quantiles=args.stratified_quantiles,
-                    seed=config.seed,
-                )
+                # if args.stratified_quantiles is None:
+                    # When no stratification is requested, just take the highest activations
+                max_activations_per_neuron = neuron_total_activations.max(dim=1).values
+                sampled_indices = torch.argsort(max_activations_per_neuron, descending=True)[:args.num_neurons]
+                # else:
+                # sampled_indices = stratified_sample_by_max_activation(
+                #     neuron_activations=neuron_total_activations,
+                #     n_samples=args.num_neurons,
+                #     n_quantiles=args.stratified_quantiles,
+                #     seed=config.seed,
+                # )
                 sampled_neurons = unique_neurons[sampled_indices]
                 print(f"SAE position {sae_pos}: {len(unique_neurons)} total neurons, taking top {args.num_neurons}")
                 print(f"  Processing {len(sampled_neurons)} neurons for explanation...")
                 
                 # Process each neuron for explanation
-                for neuron_idx in sampled_neurons:
+                for neuron_idx in tqdm(sampled_neurons, desc="Processing neurons"):
                     neuron_idx_item = neuron_idx.item()
-                    feature = Feature(
-                        sae_pos=sae_pos,
-                        neuron_idx=neuron_idx_item,
-                    )
-                    # Use the new from_data class method for cleaner sampling
-                    feature_record = FeatureRecord.from_data(
-                        data=data,
-                        feature=feature,
-                        all_token_ids=all_token_ids,
-                        neuron_idx=neuron_idx,
-                        num_explanation_examples=args.num_features_to_explain,
-                        num_positive_examples=100,
-                        num_negative_examples=100,
-                        stratified_quantiles=args.stratified_quantiles,
-                        min_examples_required=args.min_activated_features_per_neuron,
-                        seed=config.seed,
-                    )
                     
-                    # Skip if we couldn't create a valid feature record
-                    if feature_record is None:
-                        print(f"  Skipping neuron {neuron_idx_item} - not enough examples")
+                    try:
+                        feature = Feature(
+                            sae_pos=sae_pos,
+                            neuron_idx=neuron_idx_item,
+                        )
+                        # Use the new from_data class method for cleaner sampling
+                        feature_record = FeatureRecord.from_data(
+                            data=data,
+                            feature=feature,
+                            all_token_ids=all_token_ids,
+                            neuron_idx=neuron_idx,
+                            num_explanation_examples=args.num_features_to_explain,
+                            num_positive_examples=100,
+                            num_negative_examples=100,
+                            stratified_quantiles=args.stratified_quantiles,
+                            min_examples_required=args.min_activated_features_per_neuron,
+                            seed=config.seed,
+                        )
+                        
+                        # Skip if we couldn't create a valid feature record
+                        if feature_record is None:
+                            print(f"  Skipping neuron {neuron_idx_item} - not enough examples")
+                            continue
+
+                        # Generate explanation using the explanation_examples
+                        explanation: ExplainerResult = asyncio.run(explainer(feature_record))
+
+                        # Score the explanation if requested
+                        print(f"  Neuron {neuron_idx_item}: {explanation.explanation}")
+                        
+                        # Create scoring client for Detection and Fuzz scorers
+                        score_client = TogetherAIClient(
+                            api_key=settings.together_ai_api_key,  # Use together API key
+                            model=args.scoring_model
+                        )
+                        
+                        # 1. Detection Score
+                        print(f"    Computing Detection score...")
+                        detection_scorer = DetectionScorer(
+                            client=score_client,
+                            verbose=False,
+                            batch_size=5,
+                            use_structured_output=True,
+                        )
+                        detection_result = asyncio.run(detection_scorer(explanation))
+                        detection_score = detection_result.score
+                        print(f"    ✓ Detection score: {detection_score:.3f}")
+                        
+                        # 2. Fuzz Score
+                        print(f"    Computing Fuzz score...")
+                        fuzz_scorer = FuzzingScorer(
+                            client=score_client,
+                            verbose=False,
+                            batch_size=5,
+                            threshold=0.3,
+                            use_structured_output=True,
+                        )
+                        fuzz_result = asyncio.run(fuzz_scorer(explanation))
+                        # The score is now directly the accuracy
+                        fuzz_score = fuzz_result.score
+                        print(f"    ✓ Fuzz score: {fuzz_score:.3f}")
+                        
+                        # Store scores
+                        all_explanation_scores[sae_pos].append({
+                            'neuron_idx': neuron_idx_item,
+                            'explanation': explanation.explanation,
+                            'detection_score': detection_score,
+                            'fuzz_score': fuzz_score,
+                        })
+                        
+                    except Exception as e:
+                        print(f"  ✗ Error processing neuron {neuron_idx_item}: {e}")
+                        print(f"    Skipping this neuron and continuing...")
                         continue
-
-                    # Generate explanation using the explanation_examples
-                    explanation: ExplainerResult = asyncio.run(explainer(feature_record))
-
-                    # Score the explanation if requested
-                    print(f"  Neuron {neuron_idx_item}: {explanation.explanation}")
-                    
-                    # Create scoring client for Detection and Fuzz scorers
-                    score_client = TogetherAIClient(
-                        api_key=settings.together_ai_api_key,  # Use together API key
-                        model=args.scoring_model
-                    )
-                    
-                    # 1. Detection Score
-                    print(f"    Computing Detection score...")
-                    detection_scorer = DetectionScorer(
-                        client=score_client,
-                        verbose=False,
-                        batch_size=5,
-                        use_structured_output=True,
-                    )
-                    detection_result = asyncio.run(detection_scorer(explanation))
-                    detection_score = detection_result.score
-                    print(f"    ✓ Detection score: {detection_score:.3f}")
-                    
-                    # 2. Fuzz Score
-                    print(f"    Computing Fuzz score...")
-                    fuzz_scorer = FuzzingScorer(
-                        client=score_client,
-                        verbose=False,
-                        batch_size=5,
-                        threshold=0.3,
-                        use_structured_output=True,
-                    )
-                    fuzz_result = asyncio.run(fuzz_scorer(explanation))
-                    # The score is now directly the accuracy
-                    fuzz_score = fuzz_result.score
-                    print(f"    ✓ Fuzz score: {fuzz_score:.3f}")
-                    # Store scores
-                    all_explanation_scores[sae_pos].append({
-                        'neuron_idx': neuron_idx_item,
-                        'explanation': explanation.explanation,
-                        'detection_score': detection_score,
-                        'fuzz_score': fuzz_score,
-                    })
             
             # Save explanations to Wandb
             try:
@@ -462,6 +484,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
         # Finish the current wandb run before moving to the next one
         wandb.finish()
 
+    wandb.teardown()
     # Create pareto plots after processing all runs
     create_pareto_plots(all_run_metrics)
 
@@ -485,8 +508,8 @@ def main():
                        help="Number of top activation examples to use for explanation (default: 10)")
     parser.add_argument("--n_eval_samples", type=int, default=50000,
                        help="Number of evaluation samples to process (default: 50000)")
-    parser.add_argument("--stratified_quantiles", type=int, default=20,
-                       help="Number of quantiles for stratified sampling of activation examples and neurons (default: 20)")
+    parser.add_argument("--stratified_quantiles", type=int, default=None,
+                       help="Number of quantiles for stratified sampling of activation examples and neurons (default: None)")
     
     # Model parameters
     parser.add_argument("--explanation_model", type=str, default="gpt-4o",
@@ -521,6 +544,9 @@ def main():
     # For debugging
     parser.add_argument("--override_n_train_samples", type=int, default=None,
                        help="Override n_train_samples to avoid slow data skipping (default: None - use config value)")
+    
+    parser.add_argument("--sae_position", type=str, default=None,
+                       help="SAE position to evaluate (default: None - use all)")
 
     args = parser.parse_args()
     

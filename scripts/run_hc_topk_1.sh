@@ -9,6 +9,13 @@ python run_experiments.py \
 --sweep_config configs/gpt2/sweep/hc_topk_sweep_1.yaml \
 --output_dir experiment_outputs/hc_topk_sweep_1
 
-python evaluation.py \
---wandb_project raymondl/gpt2-small \
---filter_runs_by_name hard_concrete_topk_k_16
+# python evaluation.py \
+# --wandb_project raymondl/gpt2-small \
+# --filter_runs_by_name gated_sparsity_coeff_0.09 \
+# --save_activation_data \
+# --generate_explanations \
+# --sae_position blocks.8.hook_resid_pre \
+# --num_neurons 100 \
+# --stratified_quantiles 20 \
+# --skip_upload
+

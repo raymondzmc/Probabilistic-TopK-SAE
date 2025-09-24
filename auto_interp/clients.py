@@ -322,14 +322,40 @@ class TogetherAIClient(Client):
             )
         
         # Execute with retry
-        response = await retry_with_exponential_backoff(
-            _make_api_call,
-            max_retries=self.max_retries,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
-            exponential_base=self.exponential_base,
-            jitter=self.jitter
-        )
+        try:
+            response = await retry_with_exponential_backoff(
+                _make_api_call,
+                max_retries=self.max_retries,
+                base_delay=self.base_delay,
+                max_delay=self.max_delay,
+                exponential_base=self.exponential_base,
+                jitter=self.jitter
+            )
+        except Exception as e:
+            # Handle grammar compilation errors by falling back to non-structured output
+            if "grammar is not valid" in str(e) and response_model is not None:
+                print(f"Warning: Grammar compilation failed for structured output, falling back to text parsing: {e}")
+                # Remove structured output and retry
+                fallback_kwargs = kwargs.copy()
+                fallback_kwargs.pop("response_format", None)
+                
+                async def _make_fallback_api_call():
+                    return await self.client.chat.completions.create(
+                        model=self.model_name,
+                        messages=messages,
+                        **fallback_kwargs
+                    )
+                
+                response = await retry_with_exponential_backoff(
+                    _make_fallback_api_call,
+                    max_retries=self.max_retries,
+                    base_delay=self.base_delay,
+                    max_delay=self.max_delay,
+                    exponential_base=self.exponential_base,
+                    jitter=self.jitter
+                )
+            else:
+                raise
         
         if len(response.choices) == 0:
             raise Exception(f"No response choices from model: {response}")
@@ -344,7 +370,10 @@ class TogetherAIClient(Client):
             try:
                 structured_response = response_model.model_validate_json(text)
             except ValidationError as e:
-                raise Exception(f"Failed to parse structured response {e.message}: {text}")
+                # If structured parsing fails, we still have the text response
+                # The classifier will handle text parsing as fallback
+                print(f"Warning: Failed to parse structured response, will use text parsing fallback: {e}")
+                structured_response = None
 
         # Extract logprobs if available
         if response_choice.logprobs:

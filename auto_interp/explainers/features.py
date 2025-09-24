@@ -119,7 +119,7 @@ class FeatureRecord:
         num_explanation_examples: int = 10,
         num_positive_examples: int = 100,
         num_negative_examples: int = 100,
-        stratified_quantiles: int = 20,
+        stratified_quantiles: int | None = None,
         min_examples_required: int = 10,
         seed: int = 42,
     ) -> Optional["FeatureRecord"]:
@@ -197,12 +197,17 @@ class FeatureRecord:
         if len(neuron_data_indices) <= total_needed:
             sampled_indices = torch.arange(len(neuron_data_indices))
         else:
-            sampled_indices = stratified_sample_by_max_activation(
-                neuron_activations=neuron_activations.float(),
-                n_samples=total_needed,
-                n_quantiles=stratified_quantiles,
-                seed=seed,
-            )
+            # if stratified_quantiles is None:
+                # When no stratification is requested, just take the highest activations
+            max_activations_per_example = neuron_activations.max(dim=1).values
+            sampled_indices = torch.argsort(max_activations_per_example, descending=True)[:total_needed]
+            # else:
+            #     sampled_indices = stratified_sample_by_max_activation(
+            #         neuron_activations=neuron_activations.float(),
+            #         n_samples=total_needed,
+            #         n_quantiles=stratified_quantiles,
+            #         seed=seed,
+            #     )
         
         # Split the stratified samples into explanation and positive examples
         if len(sampled_indices) <= num_explanation_examples:

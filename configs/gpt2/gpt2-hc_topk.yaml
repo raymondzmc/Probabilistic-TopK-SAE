@@ -1,6 +1,6 @@
 # Experiment Settings
 wandb_project: gpt2-small
-wandb_run_name: null
+wandb_run_name: probabilistic_topk
 wandb_tags: ["hc_topk"]
 seed: 42
 
@@ -64,3 +64,5 @@ saes:
   add_magnitude_to_scores: true
   z_scale: 1.0
   magnitude_scale: 1e-4
+  use_hard_concrete: true
+  use_layer_norm: true

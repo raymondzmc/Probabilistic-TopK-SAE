@@ -30,6 +30,8 @@ class HardConcreteTopKSAEConfig(SAEConfig):
     add_magnitude_to_scores: bool = Field(False, description="Add magnitude to scores")
     z_scale: float | None = Field(None, description="Scale for the hard concrete samples")
     detach_decoder_bias: bool = Field(False, description="Detach the decoder bias from the gradient")
+    use_hard_concrete: bool = Field(True, description="Use hard concrete sampling")
+    use_layer_norm: bool = Field(True, description="Use layer norm on the gate logits")
 
     @model_validator(mode="before")
     @classmethod
@@ -74,6 +76,8 @@ class HardConcreteTopKSAE(BaseSAE):
         add_magnitude_to_scores: bool = True,
         z_scale: float | None = None,
         detach_decoder_bias: bool = False,
+        use_hard_concrete: bool = True,
+        use_layer_norm: bool = True,
     ):
         """
         Args:
@@ -154,6 +158,8 @@ class HardConcreteTopKSAE(BaseSAE):
         self.add_magnitude_to_scores = add_magnitude_to_scores
         self.z_scale = z_scale
         self.detach_decoder_bias = detach_decoder_bias
+        self.use_hard_concrete = use_hard_concrete
+        self.use_layer_norm = use_layer_norm
 
     def sample_hard_concrete(self, logits: torch.Tensor):
         if self.training:
@@ -195,9 +201,15 @@ class HardConcreteTopKSAE(BaseSAE):
         else:
             x_centered = x - self.decoder_bias
         preacts = self.encoder(x_centered)
-        gate_logits = self.gate_ln(preacts)
 
-        z = self.sample_hard_concrete(gate_logits)
+        if self.use_hard_concrete:
+            if self.use_layer_norm:
+                gate_logits = self.gate_ln(preacts)
+                z = self.sample_hard_concrete(gate_logits)
+            else:
+                z = self.sample_hard_concrete(preacts)
+        else:
+            z = torch.sigmoid(preacts)
 
         if self.use_magnitude:
             magnitude = preacts.abs()
