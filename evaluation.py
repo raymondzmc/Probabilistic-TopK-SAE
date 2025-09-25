@@ -138,11 +138,11 @@ def run_evaluation(args: argparse.Namespace) -> None:
         if args.generate_explanations:
             try:
                 loaded_explanations = load_explanations_from_wandb(run_id, project=args.wandb_project, output_path=args.output_path)
-                if loaded_explanations is not None and not args.force_recompute:
+                if loaded_explanations is not None and not args.force_recompute and not args.force_recompute_explanations:
                     all_explanation_scores = loaded_explanations
                     print(f"Loaded existing explanations from Wandb")
-                elif loaded_explanations is not None and args.force_recompute:
-                    print(f"Found existing explanations but --force_recompute is set, will recompute")
+                elif loaded_explanations is not None and (args.force_recompute or args.force_recompute_explanations):
+                    print(f"Found existing explanations but force recompute is set, will recompute")
             except Exception as e:
                 print(f"No existing explanations found: {e}")
                 print("Will compute explanations from scratch")
@@ -305,8 +305,9 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 ),
                 tokenizer=tokenizer,
                 cot=True,
-                threshold=0.6,
+                threshold=0.3,
                 activations=False,
+                temperature=0.0,
             )
 
             for sae_pos in raw_sae_positions:
@@ -315,48 +316,92 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 
                 # Count occurrences of each neuron and calculate total activation
                 unique_neurons = torch.unique(data['neuron_indices'], return_counts=False)
-                neuron_total_activations = []
-                for neuron_idx in unique_neurons:
-                    neuron_mask = data['neuron_indices'] == neuron_idx
-                    neuron_activations = data['nonzero_activations'][neuron_mask].float()
-                    neuron_total_activations.append(neuron_activations.max(dim=0).values)
-
-                neuron_total_activations = torch.stack(neuron_total_activations)
-                # if args.stratified_quantiles is None:
-                    # When no stratification is requested, just take the highest activations
-                max_activations_per_neuron = neuron_total_activations.max(dim=1).values
-                sampled_indices = torch.argsort(max_activations_per_neuron, descending=True)[:args.num_neurons]
-                # else:
-                # sampled_indices = stratified_sample_by_max_activation(
-                #     neuron_activations=neuron_total_activations,
-                #     n_samples=args.num_neurons,
-                #     n_quantiles=args.stratified_quantiles,
-                #     seed=config.seed,
+                
+                # Efficient computation using scatter_reduce
+                num_neurons = unique_neurons.max().item() + 1
+                seq_len = data['nonzero_activations'].shape[1]
+                
+                # Initialize tensor to store max activations per neuron per position
+                # neuron_total_activations_full = torch.zeros(num_neurons, seq_len, 
+                #                                            device=data['nonzero_activations'].device,
+                #                                            dtype=torch.float32)
+                
+                # Use scatter_reduce to get max activation per neuron per position
+                # neuron_total_activations_full.scatter_reduce_(
+                #     0,  # dimension to scatter along
+                #     data['neuron_indices'].unsqueeze(1).expand(-1, seq_len),  # indices
+                #     data['nonzero_activations'].float(),  # values to scatter
+                #     reduce='amax',  # take maximum
+                #     include_self=False
                 # )
+                
+                # Extract only the neurons that actually appear in the data
+                # neuron_total_activations = neuron_total_activations_full[unique_neurons]
+                
+                # Count number of unique sequences each neuron activates on
+                # More efficient vectorized approach
+                    
+                # Create unique (neuron, sequence) pairs to avoid double counting
+                neuron_sequence_pairs = torch.stack([data['neuron_indices'], data['data_indices']], dim=1)
+                unique_pairs = torch.unique(neuron_sequence_pairs, dim=0)
+                
+                # Count sequences per neuron using bincount
+                neuron_indices_from_pairs = unique_pairs[:, 0]
+                neuron_sequence_counts = torch.bincount(neuron_indices_from_pairs, minlength=num_neurons)
+                
+                # Get counts only for neurons that appear
+                counts_for_active_neurons = neuron_sequence_counts[unique_neurons]
+                
+                min_required_examples = args.num_features_to_explain + args.num_positive_examples
+                sufficient_examples_mask = counts_for_active_neurons >= min_required_examples
+                filtered_indices = torch.arange(len(unique_neurons))[sufficient_examples_mask]
+                
+                if len(filtered_indices) == 0:
+                    print(f"  No neurons found with at least {min_required_examples} activated sequences")
+                    continue
+                
+                num_to_sample = min(args.num_neurons, len(filtered_indices))
+                torch.manual_seed(config.seed)
+                random_perm = torch.randperm(len(filtered_indices))
+                sampled_indices = filtered_indices[random_perm[:num_to_sample]]
                 sampled_neurons = unique_neurons[sampled_indices]
-                print(f"SAE position {sae_pos}: {len(unique_neurons)} total neurons, taking top {args.num_neurons}")
+                print(f"SAE position {sae_pos}: {len(unique_neurons)} total neurons, {len(filtered_indices)} with ≥{min_required_examples} examples, randomly sampling {len(sampled_neurons)}")
                 print(f"  Processing {len(sampled_neurons)} neurons for explanation...")
                 
+                # Initialize running statistics
+                detection_scores = []
+                fuzz_scores = []
+                
                 # Process each neuron for explanation
-                for neuron_idx in tqdm(sampled_neurons, desc="Processing neurons"):
+                pbar = tqdm(sampled_neurons, desc="Processing neurons")
+                for i, neuron_idx in enumerate(pbar):
                     neuron_idx_item = neuron_idx.item()
                     
+                    # Update progress bar with running statistics
+                    stats_str = ""
+                    if detection_scores:
+                        stats_str += f"det_mean={np.mean(detection_scores):.3f}"
+                    if fuzz_scores:
+                        if stats_str:
+                            stats_str += ", "
+                        stats_str += f"fuzz_mean={np.mean(fuzz_scores):.3f}"
+                    if stats_str:
+                        pbar.set_postfix_str(stats_str)
+                    
                     try:
-                        feature = Feature(
-                            sae_pos=sae_pos,
-                            neuron_idx=neuron_idx_item,
-                        )
-                        # Use the new from_data class method for cleaner sampling
+                        feature = Feature(sae_pos=sae_pos, neuron_idx=neuron_idx_item)
+                        # Compute minimum required examples as explanation + positive examples
+                        min_required_examples = args.num_features_to_explain + args.num_positive_examples
                         feature_record = FeatureRecord.from_data(
                             data=data,
                             feature=feature,
                             all_token_ids=all_token_ids,
                             neuron_idx=neuron_idx,
                             num_explanation_examples=args.num_features_to_explain,
-                            num_positive_examples=100,
-                            num_negative_examples=100,
+                            num_positive_examples=args.num_positive_examples,
+                            num_negative_examples=args.num_negative_examples,
                             stratified_quantiles=args.stratified_quantiles,
-                            min_examples_required=args.min_activated_features_per_neuron,
+                            min_examples_required=min_required_examples,
                             seed=config.seed,
                         )
                         
@@ -384,12 +429,15 @@ def run_evaluation(args: argparse.Namespace) -> None:
                             verbose=False,
                             batch_size=5,
                             use_structured_output=True,
+                            temperature=0.0,
                         )
                         detection_result = asyncio.run(detection_scorer(explanation))
                         detection_score = detection_result.score
                         print(f"    ✓ Detection score: {detection_score:.3f}")
+                        detection_scores.append(detection_score)
                         
                         # 2. Fuzz Score
+                        # Commented out for now - taking too long
                         print(f"    Computing Fuzz score...")
                         fuzz_scorer = FuzzingScorer(
                             client=score_client,
@@ -397,11 +445,13 @@ def run_evaluation(args: argparse.Namespace) -> None:
                             batch_size=5,
                             threshold=0.3,
                             use_structured_output=True,
+                            temperature=0.0,
                         )
                         fuzz_result = asyncio.run(fuzz_scorer(explanation))
                         # The score is now directly the accuracy
                         fuzz_score = fuzz_result.score
                         print(f"    ✓ Fuzz score: {fuzz_score:.3f}")
+                        fuzz_scores.append(fuzz_score)
                         
                         # Store scores
                         all_explanation_scores[sae_pos].append({
@@ -415,6 +465,13 @@ def run_evaluation(args: argparse.Namespace) -> None:
                         print(f"  ✗ Error processing neuron {neuron_idx_item}: {e}")
                         print(f"    Skipping this neuron and continuing...")
                         continue
+                
+                # Print final statistics for this SAE position
+                print(f"\n  Final statistics for {sae_pos}:")
+                if detection_scores:
+                    print(f"    Detection: mean={np.mean(detection_scores):.3f}, std={np.std(detection_scores):.3f}, n={len(detection_scores)}")
+                if fuzz_scores:
+                    print(f"    Fuzz:      mean={np.mean(fuzz_scores):.3f}, std={np.std(fuzz_scores):.3f}, n={len(fuzz_scores)}")
             
             # Save explanations to Wandb
             try:
@@ -500,15 +557,17 @@ def main():
     # Explanation parameters
     parser.add_argument("--num_neurons", type=int, default=300,
                        help="Number of top neurons to process per layer (default: 300)")
-    parser.add_argument("--min_activated_features_per_neuron", type=int, default=100,
-                       help="Minimum number of activated features to use for explanation per neuron (default: 100)")
+    parser.add_argument("--num_positive_examples", type=int, default=100,
+                       help="Number of positive examples (where neuron is active) for scoring (default: 100)")
+    parser.add_argument("--num_negative_examples", type=int, default=100,
+                       help="Number of negative examples (where neuron is inactive) for scoring (default: 100)")
     parser.add_argument("--max_activated_features_per_neuron", type=int, default=10000,
                        help="Maximum number of activated features to use for explanation per neuron (default: 1000)")
     parser.add_argument("--num_features_to_explain", type=int, default=10,
                        help="Number of top activation examples to use for explanation (default: 10)")
-    parser.add_argument("--n_eval_samples", type=int, default=50000,
+    parser.add_argument("--n_eval_samples", type=int, default=10000,
                        help="Number of evaluation samples to process (default: 50000)")
-    parser.add_argument("--stratified_quantiles", type=int, default=None,
+    parser.add_argument("--stratified_quantiles", type=int, default=20,
                        help="Number of quantiles for stratified sampling of activation examples and neurons (default: None)")
     
     # Model parameters
@@ -540,6 +599,9 @@ def main():
 
     parser.add_argument("--force_recompute", action="store_true", default=False,
                        help="Force recomputation of metrics even if existing ones are found (default: False)")
+
+    parser.add_argument("--force_recompute_explanations", action="store_true", default=False,
+                       help="Force recomputation of explanations only, keeping existing metrics and activations (default: False)")
 
     # For debugging
     parser.add_argument("--override_n_train_samples", type=int, default=None,

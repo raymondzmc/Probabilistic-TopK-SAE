@@ -1,0 +1,86 @@
+{
+  "topk_k_8_interpret": {
+    "blocks.8.hook_resid_pre": {
+      "detection": {
+        "baseline_mean": 0.6775,
+        "comparison_mean": 0.6325336851273119,
+        "baseline_better": true,
+        "t_test": {
+          "t_statistic": 2.5925394693383823,
+          "p_value": 0.010974002287487586,
+          "significant_at_0.01": false
+        },
+        "mann_whitney": {
+          "u_statistic": 4962.5,
+          "p_value": 0.00044580247386774477,
+          "significant_at_0.01": true
+        },
+        "bootstrap": {
+          "p_value": 0.011,
+          "ci_lower": -0.0006624495875813977,
+          "ci_upper": 0.09033326661201906,
+          "significant_at_0.01": false
+        },
+        "permutation": {
+          "p_value": 0.0146,
+          "significant_at_0.01": false
+        },
+        "bayesian": {
+          "probability_better": 0.9908,
+          "credible_interval": [
+            -0.003559494965759808,
+            0.09427450402620774
+          ],
+          "bayes_factor": 0.031592161151986146,
+          "evidence": "Strong evidence for null"
+        },
+        "effect_sizes": {
+          "cohens_d": 0.4057545940586244,
+          "cliffs_delta": 0.33221476510067116
+        }
+      }
+    }
+  },
+  "gated_sparsity_coeff_0.09": {
+    "blocks.8.hook_resid_pre": {
+      "detection": {
+        "baseline_mean": 0.6775,
+        "comparison_mean": 0.6289,
+        "baseline_better": true,
+        "t_test": {
+          "t_statistic": 1.6133455940983898,
+          "p_value": 0.11085236701442827,
+          "significant_at_0.01": false
+        },
+        "mann_whitney": {
+          "u_statistic": 1463.0,
+          "p_value": 0.14283983183311286,
+          "significant_at_0.01": false
+        },
+        "bootstrap": {
+          "p_value": 0.098,
+          "ci_lower": -0.024402499999999976,
+          "ci_upper": 0.13170050000000016,
+          "significant_at_0.01": false
+        },
+        "permutation": {
+          "p_value": 0.113,
+          "significant_at_0.01": false
+        },
+        "bayesian": {
+          "probability_better": 0.9434,
+          "credible_interval": [
+            -0.0321957585360461,
+            0.12812377745212641
+          ],
+          "bayes_factor": 0.01105458186955166,
+          "evidence": "Strong evidence for null"
+        },
+        "effect_sizes": {
+          "cohens_d": 0.32266911881967797,
+          "cliffs_delta": 0.1704
+        }
+      }
+    }
+  }
+}

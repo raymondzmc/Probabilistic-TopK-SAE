@@ -29,7 +29,7 @@ class DefaultExplainer(Explainer):
         tokenizer: PreTrainedTokenizer | None = None,
         activations: bool = True,
         cot: bool = False,
-        threshold: float = 0.6,
+        threshold: float = 0.3,
         **generation_kwargs,
     ):
         self.client = client
@@ -68,7 +68,7 @@ class DefaultExplainer(Explainer):
 
     def _join_activations(self, example: Example) -> str:
         activations = []
-        threshold = 0.6
+        threshold = 0.3
         for i, normalized in enumerate(example.normalized_activations):
             if example.normalized_activations[i] > threshold:
                 # Use tokens instead of str_toks (str_toks is often None)

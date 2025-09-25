@@ -806,7 +806,8 @@ def save_explanations_to_wandb(
 def load_explanations_from_wandb(
     run_id: str,
     project: str = "raymondl/tinystories-1m",
-    output_path: str = "./artifacts"
+    output_path: str = "./artifacts",
+    version: int | str | None = None
 ) -> dict[str, dict[str, Any]] | None:
     """Load explanations from Wandb artifacts.
     
@@ -814,6 +815,10 @@ def load_explanations_from_wandb(
         run_id: The Wandb run ID to load files from
         project: Wandb project name
         output_path: Path for downloading artifacts (default: ./artifacts)
+        version: Specific artifact version to load. Can be:
+                 - None (default): uses latest version
+                 - int: specific version number (e.g., 2)
+                 - str: version string (e.g., "v2" or "latest")
     
     Returns:
         Dictionary mapping neuron keys to explanation data, or None if not found
@@ -839,21 +844,42 @@ def load_explanations_from_wandb(
                 print(f"No explanations found in run {run_id}")
                 return None
             
-            # Use the latest explanations artifact (highest version)
-            latest_artifact = max(explanations_artifacts, key=lambda x: x.version)
+            # Select artifact based on version parameter
+            if version is None:
+                # Use the latest explanations artifact (highest version)
+                selected_artifact = max(explanations_artifacts, key=lambda x: x.version)
+                print(f"Using latest version (v{selected_artifact.version})")
+            else:
+                # Find artifact with specific version
+                if isinstance(version, int):
+                    version_str = f"v{version}"
+                elif version == "latest":
+                    selected_artifact = max(explanations_artifacts, key=lambda x: x.version)
+                    print(f"Using latest version (v{selected_artifact.version})")
+                else:
+                    version_str = version if version.startswith("v") else f"v{version}"
+                
+                if version != "latest":
+                    matching_artifacts = [a for a in explanations_artifacts if a.version == version_str]
+                    if not matching_artifacts:
+                        available_versions = [a.version for a in explanations_artifacts]
+                        print(f"Version {version_str} not found. Available versions: {available_versions}")
+                        return None
+                    selected_artifact = matching_artifacts[0]
+                    print(f"Using specified version {version_str}")
             
             # Download to the specified output path
             output_path = Path(output_path)
             output_path.mkdir(parents=True, exist_ok=True)
             download_dir = output_path / f"downloaded_explanations_{run_id}"
             
-            artifact_dir = latest_artifact.download(root=str(download_dir))
+            artifact_dir = selected_artifact.download(root=str(download_dir))
             
             explanations_path = Path(artifact_dir) / "explanations.json"
             if explanations_path.exists():
                 with open(explanations_path, "r") as f:
                     explanations = json.load(f)
-                print(f"Loaded explanations from Wandb artifact: {latest_artifact.name} (v{latest_artifact.version})")
+                print(f"Loaded explanations from Wandb artifact: {selected_artifact.name} ({selected_artifact.version})")
                 
                 # Also load summary if available
                 summary_path = Path(artifact_dir) / "explanation_summary.json"

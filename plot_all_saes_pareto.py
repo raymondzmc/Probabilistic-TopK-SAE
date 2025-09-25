@@ -19,7 +19,7 @@ from models import SAETransformer
 sns.set_style("whitegrid")
 plt.rcParams['figure.dpi'] = 100
 plt.rcParams['savefig.dpi'] = 300
-plt.rcParams['font.size'] = 9
+plt.rcParams['font.size'] = 12
 
 
 def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]]:
@@ -83,7 +83,12 @@ def collect_all_metrics_data(projects: List[str] = None) -> Dict[str, List[Dict]
         if 'hard_concrete' in name_lower:
             continue  # Skip hard_concrete runs
         elif 'probabilistic' in name_lower:
-            sae_type = 'probabilistic'
+            # Only include probabilistic runs with exact pattern "probabilistic_k_{number}"
+            import re
+            if re.search(r'probabilistic_k_\d+$', name_lower):
+                sae_type = 'probabilistic'
+            else:
+                continue  # Skip other probabilistic patterns (beta variations, etc.)
         elif 'relu' in name_lower:
             sae_type = 'relu'
         elif 'gated' in name_lower or 'scale' in name_lower:
@@ -198,8 +203,8 @@ def find_pareto_frontier(x_values: np.ndarray, y_values: np.ndarray,
 
 def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str], 
                            output_dir: Path = Path("plots"),
-                           max_mse: float = float('inf'), max_l0: float = float('inf'),
-                           min_mse: float = 0.0, min_l0: float = 0.0,
+                           max_mse: float = float('inf'), max_l0: float = 34.0,
+                           min_mse: float = 0.0, min_l0: float = 4.0,
                            use_log_scale: bool = False):
     """
     Create Pareto curve plots for all SAE types.
@@ -214,7 +219,9 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
     """
     output_dir.mkdir(exist_ok=True)
     
-    if max_mse == float('inf') and max_l0 == float('inf'):
+    if max_mse == float('inf') and max_l0 == 34.0 and min_mse == 0.0 and min_l0 == 4.0:
+        print(f"\nUsing default L0 filtering: L0 in [{min_l0}, {max_l0}]")
+    elif max_mse == float('inf') and max_l0 == float('inf') and min_mse == 0.0 and min_l0 == 0.0:
         print(f"\nPlotting all data points (no filtering)")
     else:
         print(f"\nFiltering: MSE in [{min_mse}, {max_mse}], L0 in [{min_l0}, {max_l0}]")
@@ -295,7 +302,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax1.scatter(l0_values, mse_values, 
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=150, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=150, label=f'{labels[sae_type]}')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, mse_values, param_labels)):
@@ -311,7 +318,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             label = f'{param:.0e}'
                         ax1.annotate(label, (x, y), 
                                    xytext=(3, 3), textcoords='offset points',
-                                   fontsize=10, alpha=0.6, color=colors[sae_type])
+                                   fontsize=14, alpha=0.6, color=colors[sae_type])
                 
                 # Highlight and connect Pareto frontier points
                 if np.any(is_pareto):
@@ -329,14 +336,14 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                                color=colors[sae_type], marker=markers[sae_type],
                                s=180, edgecolors='black', linewidth=2, zorder=5)
         
-        ax1.set_xlabel('L0 Sparsity', fontsize=20)
-        ax1.set_ylabel('MSE ← (better)', fontsize=20)
-        ax1.set_title('MSE vs L0', fontsize=24, pad=20)
+        ax1.set_xlabel('L0 Sparsity', fontsize=28, labelpad=15)
+        ax1.set_ylabel('MSE ← (better)', fontsize=28, labelpad=15)
+        ax1.set_title('MSE vs L0', fontsize=32, pad=20)
         if use_log_scale:
             ax1.set_xscale('log')
             ax1.set_yscale('log')
-        ax1.legend(loc='upper right', fontsize=16)
-        ax1.tick_params(axis='both', labelsize=18)
+        ax1.legend(loc='upper right', fontsize=24)
+        ax1.tick_params(axis='both', labelsize=26)
         ax1.grid(True, alpha=0.3, which='both')
         
         # Plot 2: Explained Variance vs L0 (minimize L0, maximize explained variance)
@@ -375,7 +382,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                 # Plot all points
                 ax2.scatter(l0_values, ev_values,
                            color=colors[sae_type], marker=markers[sae_type],
-                           alpha=0.7, s=150, label=f'{labels[sae_type]} runs')
+                           alpha=0.7, s=150, label=f'{labels[sae_type]}')
                 
                 # Add parameter labels for all points
                 for i, (x, y, param) in enumerate(zip(l0_values, ev_values, param_labels)):
@@ -391,7 +398,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                             label = f'{param:.0e}'
                         ax2.annotate(label, (x, y), 
                                    xytext=(3, 3), textcoords='offset points',
-                                   fontsize=10, alpha=0.6, color=colors[sae_type])
+                                   fontsize=14, alpha=0.6, color=colors[sae_type])
                 
                 # Highlight and connect Pareto frontier points
                 if np.any(is_pareto):
@@ -409,19 +416,26 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
                                color=colors[sae_type], marker=markers[sae_type],
                                s=180, edgecolors='black', linewidth=2, zorder=5)
         
-        ax2.set_xlabel('L0 Sparsity', fontsize=20)
-        ax2.set_ylabel('Explained Variance → (better)', fontsize=20)
-        ax2.set_title('Explained Variance vs L0', fontsize=24, pad=20)
+        ax2.set_xlabel('L0 Sparsity', fontsize=28, labelpad=15)
+        ax2.set_ylabel('Explained Variance → (better)', fontsize=28, labelpad=15)
+        ax2.set_title('Explained Variance vs L0', fontsize=32, pad=20)
+        
+        # Move y-axis label and ticks to the right side
+        ax2.yaxis.set_label_position('right')
+        ax2.yaxis.tick_right()
+        
         if use_log_scale:
             ax2.set_xscale('log')
             # Don't use log scale for explained variance as it goes from 0 to 1
-        ax2.legend(loc='lower right', fontsize=16)
-        ax2.tick_params(axis='both', labelsize=18)
+        ax2.legend(loc='lower left', fontsize=24)
+        ax2.tick_params(axis='both', labelsize=26)
         ax2.grid(True, alpha=0.3, which='both')
         
         # Adjust layout and save
         layer_display_name = layer_name.replace('.', '_')
-        if max_mse == float('inf') and max_l0 == float('inf'):
+        if max_mse == float('inf') and max_l0 == 34.0 and min_mse == 0.0 and min_l0 == 4.0:
+            filter_str = f'Default L0 filtering: L0 ∈ [{min_l0}, {max_l0}]'
+        elif max_mse == float('inf') and max_l0 == float('inf') and min_mse == 0.0 and min_l0 == 0.0:
             filter_str = 'No filtering'
         else:
             filter_str = f'MSE ∈ [{min_mse}, {max_mse}], L0 ∈ [{min_l0}, {max_l0}]'
@@ -453,8 +467,8 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
 
 def plot_alive_dictionary_components(data: Dict[str, List[Dict]], layers: List[str], 
                                    output_dir: Path = Path("plots"),
-                                   max_mse: float = float('inf'), max_l0: float = float('inf'),
-                                   min_mse: float = 0.0, min_l0: float = 0.0):
+                                   max_mse: float = float('inf'), max_l0: float = 34.0,
+                                   min_mse: float = 0.0, min_l0: float = 4.0):
     """
     Create separate plots for Alive Dictionary Components vs L0 with all lines connected.
     
@@ -532,7 +546,7 @@ def plot_alive_dictionary_components(data: Dict[str, List[Dict]], layers: List[s
                 # Plot all points
                 ax.scatter(l0_sorted, alive_sorted,
                           color=colors[sae_type], marker=markers[sae_type],
-                          alpha=0.7, s=150, label=f'{labels[sae_type]} runs', zorder=3)
+                          alpha=0.7, s=150, label=f'{labels[sae_type]}', zorder=3)
                 
                 # Connect all points with lines
                 ax.plot(l0_sorted, alive_sorted,
@@ -552,13 +566,13 @@ def plot_alive_dictionary_components(data: Dict[str, List[Dict]], layers: List[s
                             label = f'{param:.0e}'
                         ax.annotate(label, (x, y), 
                                    xytext=(3, 3), textcoords='offset points',
-                                   fontsize=10, alpha=0.6, color=colors[sae_type])
+                                   fontsize=14, alpha=0.6, color=colors[sae_type])
         
-        ax.set_xlabel('L0 Sparsity', fontsize=20)
-        ax.set_ylabel('Alive Dictionary Components → (better)', fontsize=20)
-        ax.set_title('Alive Dictionary Components vs L0', fontsize=24, pad=20)
-        ax.legend(loc='lower right', fontsize=16)
-        ax.tick_params(axis='both', labelsize=18)
+        ax.set_xlabel('L0 Sparsity', fontsize=28, labelpad=15)
+        ax.set_ylabel('Alive Dictionary Components → (better)', fontsize=28, labelpad=15)
+        ax.set_title('Alive Dictionary Components vs L0', fontsize=32, pad=20)
+        ax.legend(loc='lower right', fontsize=24)
+        ax.tick_params(axis='both', labelsize=26)
         ax.grid(True, alpha=0.3, which='both')
         
         # Adjust layout and save
@@ -578,12 +592,14 @@ def plot_alive_dictionary_components(data: Dict[str, List[Dict]], layers: List[s
 
 
 def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
-                        max_mse: float = float('inf'), max_l0: float = float('inf'),
-                        min_mse: float = 0.0, min_l0: float = 0.0):
+                        max_mse: float = float('inf'), max_l0: float = 34.0,
+                        min_mse: float = 0.0, min_l0: float = 4.0):
     """Print a summary of the Pareto-optimal points for each layer and SAE type."""
     
     print("\n" + "=" * 80)
-    if max_mse == float('inf') and max_l0 == float('inf'):
+    if max_mse == float('inf') and max_l0 == 34.0 and min_mse == 0.0 and min_l0 == 4.0:
+        filter_str = f'Default L0 filtering: L0 ∈ [{min_l0}, {max_l0}]'
+    elif max_mse == float('inf') and max_l0 == float('inf') and min_mse == 0.0 and min_l0 == 0.0:
         filter_str = 'No filtering'
     else:
         filter_str = f'MSE ∈ [{min_mse}, {max_mse}], L0 ∈ [{min_l0}, {max_l0}]'
@@ -630,12 +646,12 @@ def print_pareto_summary(data: Dict[str, List[Dict]], layers: List[str],
                         filtered_count += 1
             
             if not runs_data:
-                if max_mse != float('inf') or max_l0 != float('inf'):
+                if max_mse != float('inf') or max_l0 != 34.0 or min_mse != 0.0 or min_l0 != 4.0:
                     print(f"  No data available after filtering ({filtered_count} runs filtered)")
                 else:
                     print(f"  No data available")
                 continue
-            elif filtered_count > 0 and (max_mse != float('inf') or max_l0 != float('inf')):
+            elif filtered_count > 0 and (max_mse != float('inf') or max_l0 != 34.0 or min_mse != 0.0 or min_l0 != 4.0):
                 print(f"  ({filtered_count} runs filtered out)")
             
             # Calculate statistics
@@ -691,8 +707,8 @@ def main():
     parser.add_argument(
         "--max-l0",
         type=float,
-        default=100,
-        help="Maximum L0 threshold for filtering (default: 100)"
+        default=34,
+        help="Maximum L0 threshold for filtering (default: 34)"
     )
     parser.add_argument(
         "--min-mse",
@@ -703,8 +719,8 @@ def main():
     parser.add_argument(
         "--min-l0",
         type=float,
-        default=0.0,
-        help="Minimum L0 threshold for filtering (default: 0.0)"
+        default=4.0,
+        help="Minimum L0 threshold for filtering (default: 4.0)"
     )
     parser.add_argument(
         "--log-scale",

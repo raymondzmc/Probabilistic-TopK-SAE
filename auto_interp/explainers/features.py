@@ -119,7 +119,7 @@ class FeatureRecord:
         num_explanation_examples: int = 10,
         num_positive_examples: int = 100,
         num_negative_examples: int = 100,
-        stratified_quantiles: int | None = None,
+        stratified_quantiles: int = 20,
         min_examples_required: int = 10,
         seed: int = 42,
     ) -> Optional["FeatureRecord"]:
@@ -191,32 +191,34 @@ class FeatureRecord:
                 normalized_activations=(activations.float() * 10 / record.max_activation).floor() if record.max_activation > 0 else torch.zeros_like(activations),
             )
         
-        # 1. Stratified sampling for explanation and positive examples
-        total_needed = min(num_explanation_examples + num_positive_examples, len(neuron_data_indices))
-        
-        if len(neuron_data_indices) <= total_needed:
-            sampled_indices = torch.arange(len(neuron_data_indices))
+        # 1. Sample explanation examples using top activations (best for generating explanations)
+        if len(neuron_data_indices) <= num_explanation_examples:
+            explanation_indices = torch.arange(len(neuron_data_indices))
         else:
-            # if stratified_quantiles is None:
-                # When no stratification is requested, just take the highest activations
+            # Always use top activations for explanation examples
             max_activations_per_example = neuron_activations.max(dim=1).values
-            sampled_indices = torch.argsort(max_activations_per_example, descending=True)[:total_needed]
-            # else:
-            #     sampled_indices = stratified_sample_by_max_activation(
-            #         neuron_activations=neuron_activations.float(),
-            #         n_samples=total_needed,
-            #         n_quantiles=stratified_quantiles,
-            #         seed=seed,
-            #     )
+            explanation_indices = torch.argsort(max_activations_per_example, descending=True)[:num_explanation_examples]
         
-        # Split the stratified samples into explanation and positive examples
-        if len(sampled_indices) <= num_explanation_examples:
-            explanation_indices = sampled_indices
-            positive_indices = torch.tensor([], dtype=torch.long)
+        # 2. Sample positive examples using stratified sampling (diverse examples for scoring)
+        # Exclude already selected explanation examples to avoid overlap
+        remaining_mask = torch.ones(len(neuron_data_indices), dtype=torch.bool)
+        remaining_mask[explanation_indices] = False
+        remaining_indices = torch.where(remaining_mask)[0]
+        
+        if len(remaining_indices) == 0:
+            raise ValueError("No remaining indices to sample from")
+        elif len(remaining_indices) <= num_positive_examples:
+            positive_indices = remaining_indices
         else:
-            explanation_indices = sampled_indices[:num_explanation_examples]
-            positive_indices = sampled_indices[num_explanation_examples:]
-
+            remaining_activations = neuron_activations[remaining_indices]
+            sampled_relative_indices = stratified_sample_by_max_activation(
+                neuron_activations=remaining_activations.float(),
+                n_samples=num_positive_examples,
+                n_quantiles=stratified_quantiles,
+                seed=seed,
+            )
+            positive_indices = remaining_indices[sampled_relative_indices]
+    
         # Create explanation examples
         record.explanation_examples = [
             create_example(neuron_data_indices[idx].item(), neuron_activations[idx])
