@@ -1,6 +1,10 @@
+conda activate sae
+export CUDA_VISIBLE_DEVICES=7
+
+
 python evaluation.py \
 --wandb_project raymondl/gpt2-small \
---filter_runs_by_name probabilistic_k_16 \
+--filter_runs_by_name top_k_8_interpret \
 --n_eval_samples 5000 \
 --num_neurons 50 \
 --num_features_to_explain 10 \
@@ -12,5 +16,5 @@ python evaluation.py \
 --examples_per_bucket 20 \
 --multi_bucket_explanations \
 --sae_position blocks.8.hook_resid_pre \
---output_path "./artifacts/calibration_gpt2_probabilistic_k_16_multi" \
+--output_path "./artifacts/calibration_gpt2_k8_multi" \
 --skip_upload

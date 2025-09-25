@@ -1,22 +1,16 @@
-
-#!/bin/bash
-conda activate sae
-
-export CUDA_VISIBLE_DEVICES=0
-
-python run_experiments.py \
---base_config configs/gpt2/gpt2-hc_topk.yaml \
---sweep_config configs/gpt2/sweep/hc_topk_sweep_0.yaml \
---output_dir experiment_outputs/hc_topk_sweep_0
-
-# python evaluation.py \
-# --wandb_project raymondl/gpt2-small \
-# --filter_runs_by_name topk_k_24_interpret
-
-# python evaluation.py \
-# --wandb_project raymondl/gpt2-small \
-# --filter_runs_by_name probabilistic_k_24
-
-# python evaluation.py \
-# --wandb_project raymondl/gpt2-small \
-# --filter_runs_by_name hard_concrete_topk_k_32_magnitude_scale_1e-5
+python evaluation.py \
+--wandb_project raymondl/gpt2-small \
+--filter_runs_by_name topk_k_16_interpret \
+--n_eval_samples 10000 \
+--num_neurons 50 \
+--num_features_to_explain 10 \
+--window_size 64 \
+--generate_explanations \
+--save_activation_data \
+--stratified_calibration \
+--calibration_buckets 5 \
+--examples_per_bucket 20 \
+--multi_bucket_explanations \
+--sae_position blocks.8.hook_resid_pre \
+--output_path "./artifacts/calibration_gpt2_topk_k_16_multi" \
+--skip_upload

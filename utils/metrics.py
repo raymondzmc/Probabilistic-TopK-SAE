@@ -65,8 +65,10 @@ def get_activations_for_sae_type(sae_output, sae_type: SAEType) -> torch.Tensor:
         return sae_output.c
     elif sae_type == SAEType.VI_TOPK:
         return sae_output.c
+    elif sae_type == SAEType.HARD_CONCRETE_TOPK:
+        return sae_output.c
     else:
-        return sae_output.c  # Default to main activations
+        return sae_output.c
 
 
 def compute_alive_dictionary_indices(activations: torch.Tensor) -> list[int]:

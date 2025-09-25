@@ -24,7 +24,7 @@ data:
   dataset_name: "apollo-research/Skylion007-openwebtext-tokenizer-gpt2"
   tokenizer_name: "gpt2"
   context_length: 1024
-  n_train_samples: 300_000
+  n_train_samples: 200_000
   n_eval_samples: 1_000
   train_batch_size: 8
   eval_batch_size: 8

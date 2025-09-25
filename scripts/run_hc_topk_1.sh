@@ -1,21 +1,16 @@
-
-#!/bin/bash
-conda activate sae
-
-export CUDA_VISIBLE_DEVICES=1
-
-python run_experiments.py \
---base_config configs/gpt2/gpt2-hc_topk.yaml \
---sweep_config configs/gpt2/sweep/hc_topk_sweep_1.yaml \
---output_dir experiment_outputs/hc_topk_sweep_1
-
-# python evaluation.py \
-# --wandb_project raymondl/gpt2-small \
-# --filter_runs_by_name gated_sparsity_coeff_0.09 \
-# --save_activation_data \
-# --generate_explanations \
-# --sae_position blocks.8.hook_resid_pre \
-# --num_neurons 100 \
-# --stratified_quantiles 20 \
-# --skip_upload
-
+python evaluation.py \
+--wandb_project raymondl/gpt2-small \
+--filter_runs_by_name gated_sparsity_coeff_0.09 \
+--n_eval_samples 10000 \
+--num_neurons 50 \
+--num_features_to_explain 10 \
+--window_size 64 \
+--generate_explanations \
+--save_activation_data \
+--stratified_calibration \
+--calibration_buckets 5 \
+--examples_per_bucket 20 \
+--multi_bucket_explanations \
+--sae_position blocks.8.hook_resid_pre \
+--output_path "./artifacts/calibration_gpt2_gated_9e-02_multi" \
+--skip_upload
