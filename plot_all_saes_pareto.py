@@ -427,7 +427,7 @@ def plot_all_pareto_curves(data: Dict[str, List[Dict]], layers: List[str],
         if use_log_scale:
             ax2.set_xscale('log')
             # Don't use log scale for explained variance as it goes from 0 to 1
-        ax2.legend(loc='lower left', fontsize=24)
+        ax2.legend(loc='lower right', fontsize=24)
         ax2.tick_params(axis='both', labelsize=26)
         ax2.grid(True, alpha=0.3, which='both')
         
