@@ -86,7 +86,7 @@ def load_calibration_data_with_confidence(base_path):
     }
 
 
-def plot_subplot(ax, models, colors, markers, labels):
+def plot_subplot(ax, models, colors, markers, labels, is_second_subplot=False):
     """Plot calibration curves on a given subplot."""
     
     # Define horizontal offsets for staggering (dodge) - increased for clarity
@@ -137,17 +137,16 @@ def plot_subplot(ax, models, colors, markers, labels):
             print(f"Warning: Could not load data for {model_key}: {e}")
             continue
     
-    # Add perfect calibration line (behind data)
-    ax.plot([0, 100], [0, 1], 'k--', alpha=0.3, linewidth=3, 
-            label='Perfect calibration', zorder=0)
+    # Perfect calibration line removed due to y-axis zoom
     
     # Customize subplot
-    ax.set_xlabel('Activation Percentile', fontsize=24, labelpad=14)
-    ax.set_ylabel('Interpretability Score', fontsize=24, labelpad=14)
+    ax.set_xlabel('Activation Percentile', fontsize=28, labelpad=16)
+    if not is_second_subplot:
+        ax.set_ylabel('Interpretability Score', fontsize=28, labelpad=16)
     
-    # Set axis limits with minimal padding
+    # Set axis limits with minimal padding and stretched y-axis for better difference visualization
     ax.set_xlim(-1, 101)
-    ax.set_ylim(-0.02, 1.02)
+    ax.set_ylim(0.35, 0.87)
     
     # Improve grid appearance
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.8)
@@ -161,7 +160,10 @@ def plot_subplot(ax, models, colors, markers, labels):
         ax.axvspan(i*20, (i+1)*20, alpha=0.02, color='gray', zorder=0)
     
     # Improve tick formatting
-    ax.tick_params(axis='both', which='major', labelsize=20)
+    ax.tick_params(axis='both', which='major', labelsize=24)
+    
+    # Set white background
+    ax.set_facecolor('white')
     
     return ax
 
@@ -228,28 +230,24 @@ def main():
     # Create figure with two subplots
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(26, 11))
+    fig.patch.set_facecolor('white')
     
     # Plot first set
-    plot_subplot(ax1, models_set1, colors, markers, labels_set1)
+    plot_subplot(ax1, models_set1, colors, markers, labels_set1, is_second_subplot=False)
     
     # Plot second set
-    plot_subplot(ax2, models_set2, colors, markers, labels_set2)
+    plot_subplot(ax2, models_set2, colors, markers, labels_set2, is_second_subplot=True)
     
     # Add overall title
     fig.suptitle('Automatic Interpretability by Activation Percentile ($K=8, 16$)', 
-                 fontsize=30, fontweight='bold', y=0.98)
+                 fontsize=34, fontweight='bold', y=0.98)
     
     # Customize legends for both subplots
     for ax in [ax1, ax2]:
         handles, labels_list = ax.get_legend_handles_labels()
         
-        # Separate perfect calibration line
-        perfect_cal_idx = labels_list.index('Perfect calibration')
-        perfect_cal_handle = handles.pop(perfect_cal_idx)
-        perfect_cal_label = labels_list.pop(perfect_cal_idx)
-        
-        # Sort remaining by correlation value (extract from label)
-        # Extract r value from labels like "ReLU ($\lambda_{\rm{sparsity}}=30$, $r=0.394$)"
+        # Sort by correlation value (extract from label)
+        # Extract r value from labels like "ReLU ($r=0.394$)"
         def extract_r_value(label):
             try:
                 r_part = label.split('$r=')[1].split('$')[0]
@@ -261,16 +259,18 @@ def main():
                               key=lambda i: extract_r_value(labels_list[i]), 
                               reverse=True)
         
-        sorted_handles = [handles[i] for i in sorted_indices] + [perfect_cal_handle]
-        sorted_labels = [labels_list[i] for i in sorted_indices] + [perfect_cal_label]
+        sorted_handles = [handles[i] for i in sorted_indices]
+        sorted_labels = [labels_list[i] for i in sorted_indices]
         
         ax.legend(sorted_handles, sorted_labels, 
-                 loc='upper left', 
-                 fontsize=20, 
-                 framealpha=0.95,
+                 loc='lower right', 
+                 fontsize=24, 
+                 framealpha=1.0,
                  frameon=True,
                  fancybox=True,
-                 shadow=True)
+                 shadow=False,
+                 facecolor='white',
+                 edgecolor='black')
     
     # Adjust layout
     plt.tight_layout(rect=[0, 0, 1, 0.96])
