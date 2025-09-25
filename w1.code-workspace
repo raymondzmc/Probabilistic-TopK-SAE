@@ -1,0 +1,105 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+            "name": "Python: run_experiments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+			"justMyCode": false,
+			"args": [
+				//"--base_config", "configs/gpt2/gpt2-relu.yaml",
+			    //"--sweep_config", "configs/gpt2/sweep/relu_sweep.yaml",
+				//"--output_dir", "experiment_outputs/relu_sweep"，
+				"--base_config", "configs/gpt2/gpt2-hc_topk.yaml",
+				"--sweep_config", "configs/gpt2/sweep/hc_topk_sweep_0.yaml",
+				"--output_dir", "experiment_outputs/hc_topk_sweep_0"
+				// "--base_config", "configs/qwen3-0.6b/qwen3-0.6b-hc_topk.yaml",
+				// "--sweep_config", "configs/qwen3-0.6b/sweep/hc_topk_sweep_2.yaml",
+				// "--output_dir", "experiment_outputs/qwen3-0.6b/fineweb_hc_topk_sweep_2"
+				// "--base_config", "configs/qwen3-0.6b/qwen3-0.6b-relu.yaml",
+				// "--sweep_config", "configs/qwen3-0.6b/sweep/relu_sweep.yaml",
+				// "--output_dir", "experiment_outputs/qwen3-0.6b/relu_sweep"
+				// "--base_config", "configs/qwen3-0.6b/qwen3-0.6b-gated.yaml",
+				// "--sweep_config", "configs/qwen3-0.6b/sweep/gated_sweep.yaml",
+				// "--output_dir", "experiment_outputs/qwen3-0.6b/gated_sweep"
+				]
+			},
+			{
+            "name": "Python: evaluation",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+			"justMyCode": false,
+			"args": [
+				"--wandb_project", "lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B",
+				"--filter_runs_by_name", "hard_concrete_topk_k_64_magnitude_scale_1e-3_initial_beta_5.0",
+				"--save_activation_data",
+				"--n_eval_samples", "1000",
+				"--skip_upload",
+				"--generate_explanations"
+				]
+			},			
+			{
+            "name": "Python: plot_alive_training_dynamics_qwen",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+			"justMyCode": false,
+			"args": [
+				"--project", "lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot",
+				]
+			},
+			{
+            "name": "Python: evaluation2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+			"justMyCode": false,
+			"args": [
+				"--wandb_project", "lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot",
+				"--filter_runs_by_name", "k_32",
+				"--save_activation_data",
+				// "--n_eval_samples", "5000",
+				"--skip_upload",
+				// "--generate_explanations",
+				"--sae_position", "blocks.26.hook_resid_pre"
+				]
+			},
+			{
+            "name": "Python: evaluation3",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+			"justMyCode": false,
+			"args": [
+				"--wandb_project", "lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot",
+				"--filter_runs_by_name", "k_32",
+				// "--n_eval_samples", "10000",
+				"--num_neurons", "50",
+				"--num_features_to_explain", "10",
+				"--window_size", "64",
+				"--generate_explanations",
+				"--save_activation_data",
+				"--stratified_calibration",
+				"--calibration_buckets", "5",
+				"--examples_per_bucket", "20",
+				"--multi_bucket_explanations",
+				"--sae_position", "blocks.26.hook_resid_pre",
+				"--skip_upload"
+				]
+			}
+		]
+	}
+}
