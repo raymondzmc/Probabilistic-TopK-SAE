@@ -146,8 +146,12 @@ def run_evaluation(args: argparse.Namespace) -> None:
             except Exception as e:
                 print(f"No existing explanations found: {e}")
                 print("Will compute explanations from scratch")
-        if accumulated_data is None or len(metrics) == 0:
+        if (accumulated_data is None and args.save_activation_data) or len(metrics) == 0:
             print(f"Obtaining features for {run_id}")
+            update_metrics = True
+            if len(metrics) > 0:
+                print(f"Metrics already exist, not updating those")
+                update_metrics = False
 
             # Load model and dataloader
             _, eval_loader = create_dataloaders(data_config=config.data, global_seed=config.seed, quick_eval=True)
@@ -163,12 +167,13 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     'data_indices': [],
                     'neuron_indices': [],
                 }
-                metrics[sae_pos] = {
-                    'alive_dict_components': set(),
-                    'sparsity_l0': 0.0,
-                    'mse': 0.0,
-                    'explained_variance': 0.0,
-                }
+                if update_metrics:
+                    metrics[sae_pos] = {
+                        'alive_dict_components': set(),
+                        'sparsity_l0': 0.0,
+                        'mse': 0.0,
+                        'explained_variance': 0.0,
+                    }
 
             total_tokens = 0
             for batch in tqdm(eval_loader, desc="Processing batches"):
@@ -204,7 +209,8 @@ def run_evaluation(args: argparse.Namespace) -> None:
                         sae_output.input,
                         reduction='mean'
                     ).item()
-                    metrics[sae_pos]['mse'] += mse_val * n_tokens
+                    if update_metrics:
+                        metrics[sae_pos]['mse'] += mse_val * n_tokens
                     
                     # Compute explained variance using the shared function from utils.metrics
                     exp_var = explained_variance(
@@ -212,18 +218,21 @@ def run_evaluation(args: argparse.Namespace) -> None:
                         sae_output.input,
                         layer_norm_flag=False
                     ).mean().item()
-                    metrics[sae_pos]['explained_variance'] += exp_var * n_tokens
+                    if update_metrics:
+                        metrics[sae_pos]['explained_variance'] += exp_var * n_tokens
                     
                     # Get activations using the shared function from utils.metrics
                     acts = get_activations_for_sae_type(sae_output, config.saes.sae_type)
 
                     # Compute L0 sparsity using the same logic as utils/metrics.py
                     l0_val = torch.norm(acts, p=0, dim=-1).mean().item()
-                    metrics[sae_pos]['sparsity_l0'] += l0_val * n_tokens
+                    if update_metrics:
+                        metrics[sae_pos]['sparsity_l0'] += l0_val * n_tokens
                     
                     # Compute alive dictionary components using the shared helper function
                     alive_indices = compute_alive_dictionary_indices(acts)
-                    metrics[sae_pos]['alive_dict_components'].update(alive_indices)
+                    if update_metrics:
+                        metrics[sae_pos]['alive_dict_components'].update(alive_indices)
 
                     if args.save_activation_data:
                         # Collect non-zero activations for explanation generation
@@ -249,24 +258,27 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     accumulated_data[sae_pos]['nonzero_activations'] = torch.cat(accumulated_data[sae_pos]['nonzero_activations'], dim=0).contiguous()
                     accumulated_data[sae_pos]['data_indices'] = torch.cat(accumulated_data[sae_pos]['data_indices'], dim=0).contiguous()
                     accumulated_data[sae_pos]['neuron_indices'] = torch.cat(accumulated_data[sae_pos]['neuron_indices'], dim=0).contiguous()
-
-                metrics[sae_pos]['sparsity_l0'] /= total_tokens
-                metrics[sae_pos]['mse'] /= total_tokens
-                metrics[sae_pos]['explained_variance'] /= total_tokens
                 
-                # Convert alive components set to count and proportion
-                alive_components = metrics[sae_pos]['alive_dict_components']
-                num_alive = len(alive_components)
-                total_dict_size = model.saes[sae_pos.replace(".", "-")].n_dict_components
-                metrics[sae_pos]['alive_dict_components'] = num_alive
-                metrics[sae_pos]['alive_dict_components_proportion'] = num_alive / total_dict_size
+                if update_metrics:
+                    metrics[sae_pos]['sparsity_l0'] /= total_tokens
+                    metrics[sae_pos]['mse'] /= total_tokens
+                    metrics[sae_pos]['explained_variance'] /= total_tokens
+                    
+                    # Convert alive components set to count and proportion
+                    alive_components = metrics[sae_pos]['alive_dict_components']
+                    num_alive = len(alive_components)
+                    total_dict_size = model.saes[sae_pos.replace(".", "-")].n_dict_components
+                
+                    metrics[sae_pos]['alive_dict_components'] = num_alive
+                    metrics[sae_pos]['alive_dict_components_proportion'] = num_alive / total_dict_size
             
-            # Always save metrics
-            print("Saving metrics to Wandb...")
-            try:
-                save_metrics_to_wandb(metrics=metrics, output_path=args.output_path)
-            except Exception as e:
-                print(f"Warning: Failed to upload metrics to Wandb: {e}")
+            if update_metrics:
+                # Always save metrics
+                print("Saving metrics to Wandb...")
+                try:
+                    save_metrics_to_wandb(metrics=metrics, output_path=args.output_path)
+                except Exception as e:
+                    print(f"Warning: Failed to upload metrics to Wandb: {e}")
 
             # Save activation data to Wandb
             if args.save_activation_data:
@@ -297,10 +309,13 @@ def run_evaluation(args: argparse.Namespace) -> None:
             # Initialize dict to store all explanation scores for this run
             all_explanation_scores = {}
 
+            openai_api_key = 'REMOVED'
+            together_ai_api_key = 'REMOVED'
+
             # Initialize explainer
             explainer = DefaultExplainer(
                 client=OpenAIClient(
-                    api_key=settings.openai_api_key,
+                    api_key=openai_api_key,
                     model=args.explanation_model,
                 ),
                 tokenizer=tokenizer,
@@ -316,7 +331,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 # Count occurrences of each neuron and calculate total activation
                 unique_neurons = torch.unique(data['neuron_indices'], return_counts=False)
                 neuron_total_activations = []
-                for neuron_idx in unique_neurons:
+                for neuron_idx in tqdm(unique_neurons):
                     neuron_mask = data['neuron_indices'] == neuron_idx
                     neuron_activations = data['nonzero_activations'][neuron_mask].float()
                     neuron_total_activations.append(neuron_activations.max(dim=0).values)
@@ -373,7 +388,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
                         
                         # Create scoring client for Detection and Fuzz scorers
                         score_client = TogetherAIClient(
-                            api_key=settings.together_ai_api_key,  # Use together API key
+                            api_key=together_ai_api_key,  # Use together API key
                             model=args.scoring_model
                         )
                         

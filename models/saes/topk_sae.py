@@ -104,7 +104,12 @@ class TopKSAE(BaseSAE):
 
         # Initialize decoder, then (optionally) tie encoder init to decoder^T
         if init_decoder_orthogonal:
-            self.decoder.weight.data = nn.init.orthogonal_(self.decoder.weight.data.T).T
+            # self.decoder.weight.data = nn.init.orthogonal_(self.decoder.weight.data.T).T
+            W_gpu = self.decoder.weight.data.to("cuda")
+            W_gpu = torch.nn.init.orthogonal_(W_gpu.T).T
+            self.decoder.weight.data.copy_(W_gpu.to("cpu"))
+            del W_gpu
+            torch.cuda.empty_cache()
         else:
             # Random unit-norm columns
             dec_w = torch.randn_like(self.decoder.weight)

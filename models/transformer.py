@@ -1,3 +1,4 @@
+import os
 import torch
 import tqdm
 import yaml
@@ -387,7 +388,7 @@ class SAETransformer(torch.nn.Module):
         """
         api = wandb.Api()
         run: Run = api.run(wandb_project_run_id)
-        model_cache_dir = Path(WANDB_CACHE_DIR) / wandb_project_run_id
+        model_cache_dir = Path(os.environ["WANDB_CACHE_DIR"]) / wandb_project_run_id
 
         train_config_files_remote = [file for file in run.files() if file.name.endswith(CONFIG_FILE)]
         assert len(train_config_files_remote) > 0, f"Cannot find config file for wandb run {wandb_project_run_id}."
