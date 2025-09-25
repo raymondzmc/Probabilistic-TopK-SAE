@@ -86,7 +86,7 @@ def load_calibration_data_with_confidence(base_path):
     }
 
 
-def plot_subplot(ax, models, colors, markers, labels, title_suffix=""):
+def plot_subplot(ax, models, colors, markers, labels):
     """Plot calibration curves on a given subplot."""
     
     # Define horizontal offsets for staggering (dodge) - increased for clarity
@@ -163,11 +163,6 @@ def plot_subplot(ax, models, colors, markers, labels, title_suffix=""):
     # Improve tick formatting
     ax.tick_params(axis='both', which='major', labelsize=20)
     
-    # Add subplot label
-    ax.text(0.02, 0.98, title_suffix, transform=ax.transAxes, 
-            fontsize=22, fontweight='bold', va='top', ha='left',
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
-    
     return ax
 
 
@@ -235,10 +230,10 @@ def main():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(26, 11))
     
     # Plot first set
-    plot_subplot(ax1, models_set1, colors, markers, labels_set1, "(a)")
+    plot_subplot(ax1, models_set1, colors, markers, labels_set1)
     
     # Plot second set
-    plot_subplot(ax2, models_set2, colors, markers, labels_set2, "(b)")
+    plot_subplot(ax2, models_set2, colors, markers, labels_set2)
     
     # Add overall title
     fig.suptitle('Automatic Interpretability by Activation Percentile ($K=8, 16$)', 
