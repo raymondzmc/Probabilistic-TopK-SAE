@@ -309,9 +309,6 @@ def run_evaluation(args: argparse.Namespace) -> None:
             # Initialize dict to store all explanation scores for this run
             all_explanation_scores = {}
 
-            openai_api_key = 'REMOVED'
-            together_ai_api_key = 'REMOVED'
-
             # Initialize explainer
             explainer = DefaultExplainer(
                 client=OpenAIClient(
