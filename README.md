@@ -180,11 +180,57 @@ CUDA_VISIBLE_DEVICES=7 uv run run_experiments.py --base_config configs/qwen3-0.6
 
 
 
-python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
---filter_runs_by_name topk_k_64
+CUDA_VISIBLE_DEVICES=4 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name relu_sparsity_coeff_10
 
-python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
---filter_runs_by_name topk_k_32
+CUDA_VISIBLE_DEVICES=5 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name relu_sparsity_coeff_20
 
-python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
---filter_runs_by_name topk_k_16
+CUDA_VISIBLE_DEVICES=6 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name relu_sparsity_coeff_30
+
+CUDA_VISIBLE_DEVICES=7 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name relu_sparsity_coeff_40
+
+
+CUDA_VISIBLE_DEVICES=0 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot \
+--filter_runs_by_name topk_k_8
+
+CUDA_VISIBLE_DEVICES=1 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name topk_k_8
+
+
+
+
+=============================
+
+CUDA_VISIBLE_DEVICES=5 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-1 \
+--filter_runs_by_name hard_concrete_topk_k_64_magnitude_scale_1e-4_initial_beta_5.0
+
+CUDA_VISIBLE_DEVICES=6 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-2 \
+--filter_runs_by_name hard_concrete_topk_k_64_magnitude_scale_1e-4_initial_beta_5.0
+
+
+CUDA_VISIBLE_DEVICES=0 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name gated_sparsity_coeff_0.06
+
+CUDA_VISIBLE_DEVICES=1 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name gated_sparsity_coeff_0.08
+
+CUDA_VISIBLE_DEVICES=2 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name gated_sparsity_coeff_0.09
+
+CUDA_VISIBLE_DEVICES=3 uv run evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923 \
+--filter_runs_by_name gated_sparsity_coeff_0.1
+
+
+CUDA_VISIBLE_DEVICES=0 python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot --filter_runs_by_name k_32 --save_activation_data --skip_upload --sae_position blocks.26.hook_resid_pre
+
+CUDA_VISIBLE_DEVICES=1 python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot --filter_runs_by_name k_8 --save_activation_data --skip_upload --sae_position blocks.26.hook_resid_pre
+
+CUDA_VISIBLE_DEVICES=2 python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot --filter_runs_by_name k_16 --save_activation_data --skip_upload --sae_position blocks.26.hook_resid_pre
+
+CUDA_VISIBLE_DEVICES=3 python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot --filter_runs_by_name relu_sparsity_coeff_20 --save_activation_data --skip_upload --sae_position blocks.26.hook_resid_pre
+
+CUDA_VISIBLE_DEVICES=4 python evaluation.py --wandb_project lisa27chuyuan-university-of-british-columbia/Qwen3-0.6B-0923-alive-plot --filter_runs_by_name relu_sparsity_coeff_30 --save_activation_data --skip_upload --sae_position blocks.26.hook_resid_pre
+
