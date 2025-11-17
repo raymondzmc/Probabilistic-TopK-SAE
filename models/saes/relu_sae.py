@@ -4,6 +4,7 @@ from torch import nn
 from pydantic import Field, model_validator
 from typing import Any
 from models.saes.base import BaseSAE, SAELoss, SAEOutput, SAEConfig
+from models.saes.utils import init_decoder_orthogonal_cuda
 from utils.enums import SAEType
 
 
@@ -56,7 +57,7 @@ class ReluSAE(BaseSAE):
 
         if init_decoder_orthogonal:
             # Initialize so that there are n_dict_components orthonormal vectors
-            self.decoder.weight.data = nn.init.orthogonal_(self.decoder.weight.data.T).T
+            self.decoder.weight.data = init_decoder_orthogonal_cuda(self.decoder.weight)
 
     def forward(self, x: torch.Tensor) -> SAEOutput:
         """Pass input through the encoder and normalized decoder."""

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from typing import Any
 from pydantic import Field, model_validator
 from models.saes.base import SAEConfig, SAEOutput, SAELoss, BaseSAE
+from models.saes.utils import init_decoder_orthogonal_cuda
 from utils.enums import SAEType
 from models.saes.activations import get_activation
 
@@ -90,7 +91,7 @@ class LagrangianHardConcreteSAE(BaseSAE):
         self.register_buffer("alpha", torch.tensor(initial_alpha, dtype=torch.float32, device='cpu'))
 
         if init_decoder_orthogonal:
-            self.decoder.weight.data = torch.nn.init.orthogonal_(self.decoder.weight.data.T).T
+            self.decoder.weight.data = init_decoder_orthogonal_cuda(self.decoder.weight)
 
         if tied_encoder_init:
             self.gate_encoder.weight.data.copy_(self.decoder.weight.data.T)

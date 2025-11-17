@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from typing import Callable
 from pydantic import Field
 from models.saes.base import SAEConfig, SAEOutput, SAELoss, BaseSAE
+from models.saes.utils import init_decoder_orthogonal_cuda
 from utils.enums import SAEType
 
 ACTIVATION_MAP: dict[str, Callable] = {
@@ -108,7 +109,7 @@ class GumbelTopKSAE(BaseSAE):
         self.usage_prior_weight = 0.1
 
         if init_decoder_orthogonal:
-            self.decoder.weight.data = torch.nn.init.orthogonal_(self.decoder.weight.data.T).T
+            self.decoder.weight.data = init_decoder_orthogonal_cuda(self.decoder.weight)
 
     @property
     def dict_elements(self):

@@ -6,8 +6,11 @@ Usage:
 
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
+import math
 import torch
 import wandb
+from typing import Union
 from jaxtyping import Int
 from torch import Tensor
 from torch.utils.data import DataLoader
@@ -18,8 +21,14 @@ from data import create_dataloaders
 from models import (
     SAETransformer,
     SAETransformerOutput,
+    GumbelTopKSAE,
+    HardConcreteSAE,
+    HardConcreteSAEConfig,
+    LagrangianHardConcreteSAE,
+    LagrangianHardConcreteSAEConfig,
 )
 from models.loader import load_tlens_model, load_pretrained_saes
+from utils.enums import SAEType
 from utils.misc import set_seed, get_run_name
 from utils.io import load_config, save_module
 from utils.constants import CONFIG_FILE
@@ -79,6 +88,7 @@ def evaluate(
         )
         
         for k, v in batch_metrics.items():
+            # All metrics including losses should be accumulated by total tokens
             accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v * n_tokens
 
     # Get the mean for all metrics
@@ -131,6 +141,18 @@ def train(
             min_lr_factor=config.min_lr_factor,
         )
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_schedule)
+    
+    # Prepare beta annealing schedule for Hard Concrete SAEs
+    beta_schedule = None
+    if config.saes.sae_type in [SAEType.HARD_CONCRETE, SAEType.LAGRANGIAN_HARD_CONCRETE] and config.saes.beta_annealing:
+        total_steps = config.data.n_train_samples // config.effective_batch_size
+        hc_config: Union[HardConcreteSAEConfig, LagrangianHardConcreteSAEConfig] = config.saes
+        beta_schedule = get_exponential_beta_schedule(
+            initial_beta=hc_config.initial_beta,
+            final_beta=hc_config.final_beta,
+            warmup_steps=warmup_steps,
+            total_steps=total_steps,
+        )
 
     stop_at_layer = None
     if all(name.startswith("blocks.") for name in model.raw_sae_positions) and is_local:
@@ -141,25 +163,35 @@ def train(
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     save_dir = config.save_dir / f"{run_name}_{timestamp}" if config.save_dir else None
-    progress_ratio = 0.0
+
     total_samples = 0
     total_samples_at_last_save = 0
     total_samples_at_last_eval = 0
     total_tokens = 0
     grad_updates = 0
+    progress_ratio = 0.0
     grad_norm: float | None = None
+    samples_since_act_frequency_collection: int = 0
+    acc_open_sum = defaultdict(lambda: None)
+    acc_token_cnt = defaultdict(int) 
+    last_rho_hats: dict[str, float] = defaultdict(float)
+
     for batch_idx, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc="Steps"):
-        tokens: Int[Tensor, "batch pos"] = batch[config.data.column_name].to(device=device)
-
-        # Get the current beta
+        # Update beta in Hard Concrete SAE modules based on schedule
         current_beta = None
-        for _, sae_module in model.saes.named_modules():
-            if hasattr(sae_module, "beta"):
-                current_beta = sae_module.beta.item()
+        if config.saes.sae_type in [SAEType.HARD_CONCRETE, SAEType.LAGRANGIAN_HARD_CONCRETE] and beta_schedule is not None:
+            current_beta = beta_schedule(grad_updates)
+            for sae_name, sae_module in model.saes.named_modules():
+                if isinstance(sae_module, (HardConcreteSAE, LagrangianHardConcreteSAE)):
+                    beta_tensor = torch.tensor(current_beta, device=sae_module.beta.device, dtype=sae_module.beta.dtype)
+                    sae_module.beta.copy_(beta_tensor)
 
+        tokens: Int[Tensor, "batch pos"] = batch[config.data.column_name].to(device=device)
         total_samples += tokens.shape[0]
         n_tokens = tokens.shape[0] * tokens.shape[1]
         total_tokens += n_tokens
+        samples_since_act_frequency_collection += tokens.shape[0]
+
         is_last_batch: bool = (batch_idx == len(train_loader) - 1)
         is_grad_step: bool = (batch_idx + 1) % config.gradient_accumulation_steps == 0
         is_eval_step: bool = config.eval_every_n_samples is not None and (
@@ -188,6 +220,15 @@ def train(
             stop_at_layer=stop_at_layer,
             compute_loss=True,
         )
+        with torch.no_grad():
+            if config.saes.sae_type == SAEType.LAGRANGIAN_HARD_CONCRETE:
+                for sae_name, sae_output in output.sae_outputs.items():
+                    m_d_batch = sae_output.p_open.mean(dim=(0,1))  # (D,)
+                    if acc_open_sum[sae_name] is None:
+                        acc_open_sum[sae_name] = m_d_batch.detach() * n_tokens
+                    else:
+                        acc_open_sum[sae_name] += m_d_batch.detach() * n_tokens
+                    acc_token_cnt[sae_name] += n_tokens
 
         loss = sum(loss_output.loss for loss_output in output.loss_outputs.values())
         loss /= config.gradient_accumulation_steps
@@ -208,12 +249,28 @@ def train(
                 if hasattr(module, 'train_progress'):
                     module.train_progress.copy_(progress_ratio)
 
+            # Re-normalize decoder columns after each optimizer step
+            if config.saes.sae_type == SAEType.GUMBEL_TOPK:
+                with torch.no_grad():
+                    for sae_name, module in model.saes.named_modules():
+                        if isinstance(module, (GumbelTopKSAE)):
+                            W = module.decoder.weight
+                            module.decoder.weight.copy_(torch.nn.functional.normalize(W, dim=0))
+            elif config.saes.sae_type == SAEType.HARD_CONCRETE:
+                with torch.no_grad():
+                    for sae_name, module in model.saes.named_modules():
+                        if isinstance(module, (HardConcreteSAE)):
+                            W = module.decoder.weight
+                            module.decoder.weight.copy_(torch.nn.functional.normalize(W, dim=0))
+        
         progress_ratio += 1.0 / len(train_loader)
+
         if is_log_step:
             tqdm.write(
                 f"Samples {total_samples} Batch_idx {batch_idx} GradUpdates {grad_updates} "
                 f"Loss {loss.item():.5f}"
             )
+
             if config.wandb_project:
                 log_info = {
                     "loss": loss.item(),
@@ -222,8 +279,13 @@ def train(
                     "lr": optimizer.param_groups[0]["lr"],
                     "progress_ratio": progress_ratio,
                 }
-                if current_beta is not None:
-                    log_info["beta"] = current_beta
+                if config.saes.sae_type == SAEType.HARD_CONCRETE:
+                    betas = []
+                    for sae_name, sae_module in model.saes.named_modules():
+                        if isinstance(sae_module, (HardConcreteSAE)):
+                            betas.append(sae_module.beta.mean().item())
+                    assert all(beta == betas[0] for beta in betas), "All betas should be the same"
+                    log_info["beta"] = betas[0]
 
                 if grad_norm is not None:
                     log_info["grad_norm"] = grad_norm  # Norm of grad before clipping
@@ -233,6 +295,12 @@ def train(
                     train=True, 
                     sae_type=config.saes.sae_type
                 ))
+
+                if config.saes.sae_type == SAEType.LAGRANGIAN_HARD_CONCRETE:
+                    for sae_name, sae_output in output.sae_outputs.items():
+                        log_info[f"{sae_name}/alpha"]     = sae_output.alpha.mean().item()
+                        log_info[f"{sae_name}/rho_hat"]   = last_rho_hats[sae_name]
+                
 
                 if is_eval_step and eval_loader is not None:
                     eval_metrics = evaluate(
@@ -297,8 +365,7 @@ def run(config_path_or_obj: Path | str | Config, device: torch.device | None = N
             project=config.wandb_project,
             name=run_name,
             tags=config.wandb_tags,
-            save_code=True,
-            dir=config.save_dir,
+            save_code=True
         )
         wandb.config.update(config.model_dump(mode="json"))
     

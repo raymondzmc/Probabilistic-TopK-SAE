@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 from jaxtyping import Float
 
 from models.saes.base import BaseSAE, SAELoss, SAEOutput, SAEConfig
+from models.saes.utils import init_decoder_orthogonal_cuda
 from utils.enums import SAEType
 
 
@@ -104,7 +105,7 @@ class TopKSAE(BaseSAE):
 
         # Initialize decoder, then (optionally) tie encoder init to decoder^T
         if init_decoder_orthogonal:
-            self.decoder.weight.data = nn.init.orthogonal_(self.decoder.weight.data.T).T
+            self.decoder.weight.data = init_decoder_orthogonal_cuda(self.decoder.weight)
         else:
             # Random unit-norm columns
             dec_w = torch.randn_like(self.decoder.weight)

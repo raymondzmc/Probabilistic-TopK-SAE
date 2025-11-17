@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from pydantic import Field
 from models.saes.base import SAEConfig, SAEOutput, SAELoss, BaseSAE
+from models.saes.utils import init_decoder_orthogonal_cuda
 from utils.enums import SAEType
 from models.saes.activations import get_activation
 
@@ -101,7 +102,7 @@ class HardConcreteSAE(BaseSAE):
         assert self.l < 0.0 and self.r > 1.0, "stretch_limits must satisfy l < 0 and r > 1 for L0 penalty calculation"
 
         if init_decoder_orthogonal:
-            self.decoder.weight.data = torch.nn.init.orthogonal_(self.decoder.weight.data.T).T
+            self.decoder.weight.data = init_decoder_orthogonal_cuda(self.decoder.weight)
 
         self.encoder.weight.data.copy_(self.decoder.weight.data.T)
         self.magnitude_encoder.weight.data.copy_(self.decoder.weight.data.T)

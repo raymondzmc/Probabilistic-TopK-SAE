@@ -2,6 +2,7 @@
 import torch, torch.nn.functional as F
 from torch import nn
 from models.saes.base import BaseSAE, SAELoss, SAEOutput, SAEConfig
+from models.saes.utils import init_decoder_orthogonal_cuda
 from typing import Tuple, Any
 from pydantic import Field, ConfigDict, model_validator
 from jaxtyping import Float
@@ -131,7 +132,7 @@ class VITopKSAE(BaseSAE):
         self.decoder = nn.Linear(n_dict_components, input_size, bias=False)
 
         if init_decoder_orthogonal:
-            self.decoder.weight.data = nn.init.orthogonal_(self.decoder.weight.data.T).T
+            self.decoder.weight.data = init_decoder_orthogonal_cuda(self.decoder.weight)
         else:
             w = torch.randn_like(self.decoder.weight); w = F.normalize(w, dim=0)
             self.decoder.weight.data.copy_(w)
