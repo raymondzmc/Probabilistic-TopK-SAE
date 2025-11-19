@@ -53,6 +53,7 @@ saes:
   tied_encoder_init: true
   aux_k: null
   aux_coeff: null
+  dead_toks_threshold: null
   initial_beta: 5.0
   final_beta: 1e-4
   use_magnitude: true

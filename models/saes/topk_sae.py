@@ -30,6 +30,7 @@ class TopKSAEConfig(SAEConfig):
     # Optional: dead-feature mitigation via auxiliary Top-K on the *inactive* set
     aux_k: int | None = Field(None, description="Auxiliary K for dead-feature loss (select top aux_k from the inactive set)")
     aux_coeff: float | None = Field(None, description="Coefficient for the auxiliary reconstruction loss")
+    dead_toks_threshold: int | None = Field(None, description="Threshold for considering a feature as dead (number of tokens)")
 
     @model_validator(mode="before")
     @classmethod
@@ -45,6 +46,8 @@ class TopKSAEOutput(SAEOutput):
     """
     preacts: Float[torch.Tensor, "... c"]  # encoder linear outputs (after centering)
     mask: Float[torch.Tensor, "... c"]     # binary mask of selected Top-K indices
+    auxk_indices: torch.Tensor | None = None  # auxiliary top-k indices for dead latents (shape: ... x aux_k)
+    auxk_values: torch.Tensor | None = None   # auxiliary top-k values for dead latents (shape: ... x aux_k)
 
 
 class TopKSAE(BaseSAE):
@@ -65,6 +68,7 @@ class TopKSAE(BaseSAE):
         mse_coeff: float | None = None,
         aux_k: int | None = None,
         aux_coeff: float | None = None,
+        dead_toks_threshold: int | None = None,
         init_decoder_orthogonal: bool = True,
         tied_encoder_init: bool = True,
     ):
@@ -77,6 +81,7 @@ class TopKSAE(BaseSAE):
             mse_coeff: Coefficient on MSE reconstruction loss (default 1.0).
             aux_k: If provided (>0), number of auxiliary features from the inactive set.
             aux_coeff: Coefficient on the auxiliary reconstruction loss (default 0.0 if aux_k is None).
+            dead_toks_threshold: Threshold for considering a feature as dead (number of tokens).
             init_decoder_orthogonal: Initialize decoder weight columns to be orthonormal.
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
         """
@@ -95,6 +100,7 @@ class TopKSAE(BaseSAE):
 
         self.aux_k = int(aux_k) if aux_k is not None and aux_k > 0 else 0
         self.aux_coeff = (aux_coeff if aux_coeff is not None else 0.0) if self.aux_k > 0 else 0.0
+        self.dead_toks_threshold = int(dead_toks_threshold) if dead_toks_threshold is not None else None
 
         # Bias used for input centering and added back on decode
         self.decoder_bias = nn.Parameter(torch.zeros(input_size))
@@ -114,6 +120,22 @@ class TopKSAE(BaseSAE):
 
         if tied_encoder_init:
             self.encoder.weight.data.copy_(self.decoder.weight.data.T)
+
+        # Dead latent tracking
+        self.register_buffer("stats_last_nonzero", torch.zeros(n_dict_components, dtype=torch.long))
+        
+        # Create auxk_mask_fn for masking alive latents
+        def auxk_mask_fn(x: torch.Tensor) -> torch.Tensor:
+            """Mask out alive latents by zeroing those that have been active recently."""
+            if self.dead_toks_threshold is None:
+                return x
+            dead_mask = self.stats_last_nonzero > self.dead_toks_threshold
+            # Expand dead_mask to match x dimensions
+            dead_mask = dead_mask.view(1, -1).expand_as(x)
+            # Return masked tensor (creating new tensor to avoid mutation)
+            return x * dead_mask.to(x.dtype)
+        
+        self.auxk_mask_fn = auxk_mask_fn
 
     def _apply_topk(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -139,9 +161,47 @@ class TopKSAE(BaseSAE):
         preacts = self.encoder(x_centered)  # (..., n_dict_components)
         # Top-K sparsification
         c, mask = self._apply_topk(preacts)
+        
+        # Update dead latent statistics if training
+        if self.training and self.dead_toks_threshold is not None:
+            with torch.no_grad():
+                # Flatten batch dimensions for statistics update
+                flat_c = c.reshape(-1, c.shape[-1])
+                
+                # Create a tensor to track which latents were activated (> 1e-3)
+                tmp = torch.zeros_like(self.stats_last_nonzero)
+                activated_mask = (flat_c.abs() > 1e-3).any(dim=0)
+                
+                # Reset counter for activated latents
+                self.stats_last_nonzero *= (~activated_mask).long()
+                # Increment counter for all latents
+                self.stats_last_nonzero += 1
+        
+        # Compute auxiliary top-k indices and values for dead latents
+        auxk_indices = None
+        auxk_values = None
+        
+        if self.aux_k > 0 and self.aux_coeff > 0.0 and self.dead_toks_threshold is not None:
+            # Apply mask to get only dead latents
+            masked_preacts = self.auxk_mask_fn(preacts)
+            
+            # Get top-k among dead latents
+            if masked_preacts.abs().max() > 0:  # Only if there are dead latents
+                auxk_values, auxk_indices = torch.topk(masked_preacts, k=min(self.aux_k, masked_preacts.shape[-1]), dim=-1)
+        
         # Decode using normalized dictionary elements + add bias back
         x_hat = F.linear(c, self.dict_elements, bias=self.decoder_bias)
-        return TopKSAEOutput(input=x, c=c, output=x_hat, logits=None, preacts=preacts, mask=mask)
+        
+        return TopKSAEOutput(
+            input=x, 
+            c=c, 
+            output=x_hat, 
+            logits=None, 
+            preacts=preacts, 
+            mask=mask,
+            auxk_indices=auxk_indices,
+            auxk_values=auxk_values
+        )
     
     def sample_hard_concrete(self, log_alpha: torch.Tensor, tau: float = 0.5,
                              limit_a: float = -0.1, limit_b: float = 1.1):
@@ -157,41 +217,47 @@ class TopKSAE(BaseSAE):
         Loss = mse_coeff * MSE + aux_coeff * AuxK (optional)
 
         - No explicit L1 sparsity term (sparsity enforced by Top-K).
-        - AuxK: select top aux_k features from the *inactive* set (per-sample),
-          reconstruct with a detached decoder to provide gradient to "dead" features
-          without moving the decoder, then compute an auxiliary MSE to the input.
+        - AuxK: Reconstruct the residual error (input - main_reconstruction) using dead latents
+          to provide gradient signal to features that haven't been active recently.
         """
         # Reconstruction loss
         mse_loss = F.mse_loss(output.output, output.input)
         total_loss = self.mse_coeff * mse_loss
         loss_dict: dict[str, torch.Tensor] = {"mse_loss": mse_loss.detach().clone()}
 
-        # Optional auxiliary dead-feature loss
-        if self.aux_k > 0 and self.aux_coeff > 0.0:
-            z = output.preacts
-            # Zero out the already-selected Top-K, then pick top aux_k from the remainder
-            z_inactive = z * (1.0 - output.mask)
-            # Handle edge cases (aux_k == 0 or >= latent dim)
-            latent_dim = z_inactive.size(-1)
-            aux_k = min(self.aux_k, max(0, latent_dim - self.k))
-            if aux_k > 0:
-                aux_idx = torch.topk(z_inactive, k=aux_k, dim=-1)[1]
-                aux_mask = torch.zeros_like(z_inactive)
-                aux_mask.scatter_(-1, aux_idx, 1.0)
-                aux_code = z * aux_mask  # use actual (ReLUed) magnitudes for those indices
-
-                # Reconstruct with DETACHED normalized decoder and bias
-                with torch.no_grad():
-                    dec_w_detached = F.normalize(self.decoder.weight.detach(), dim=0)
-                    dec_b_detached = self.decoder_bias.detach()
-                x_hat_aux = F.linear(aux_code, dec_w_detached, bias=dec_b_detached)
-
-                aux_loss = F.mse_loss(x_hat_aux, output.input)
-                total_loss = total_loss + self.aux_coeff * aux_loss
-                loss_dict["aux_loss"] = aux_loss.detach().clone()
-            else:
-                # No room for auxiliary picks; report zero aux loss
-                loss_dict["aux_loss"] = torch.zeros((), device=output.input.device)
+        # Optional auxiliary dead-feature loss using residual reconstruction
+        if (self.aux_k > 0 and self.aux_coeff > 0.0 and 
+            output.auxk_indices is not None and output.auxk_values is not None):
+            
+            # Decode auxiliary latents
+            # Create sparse representation for auxiliary latents
+            aux_c = torch.zeros_like(output.preacts)
+            aux_c.scatter_(-1, output.auxk_indices, output.auxk_values)
+            
+            # Decode auxiliary latents (no bias, as we're reconstructing residual)
+            x_hat_aux = F.linear(aux_c, self.dict_elements)
+            
+            # Compute residual target: input - main_reconstruction + bias
+            # The bias is added back because we want auxiliary latents to help reconstruct
+            # the part not captured by main latents
+            residual_target = output.input - output.output.detach() + self.decoder_bias.detach()
+            
+            # Normalized MSE for auxiliary loss
+            # Avoid division by zero with small epsilon
+            residual_norm = torch.norm(residual_target, p=2, dim=-1, keepdim=True)
+            aux_recon_norm = torch.norm(x_hat_aux, p=2, dim=-1, keepdim=True)
+            
+            normalized_aux_loss = F.mse_loss(
+                x_hat_aux / (aux_recon_norm + 1e-8),
+                residual_target / (residual_norm + 1e-8)
+            )
+            
+            aux_loss = normalized_aux_loss.nan_to_num(0.0)
+            total_loss = total_loss + self.aux_coeff * aux_loss
+            loss_dict["aux_loss"] = aux_loss.detach().clone()
+        else:
+            # No auxiliary loss
+            loss_dict["aux_loss"] = torch.zeros((), device=output.input.device)
 
         return SAELoss(loss=total_loss, loss_dict=loss_dict)
 

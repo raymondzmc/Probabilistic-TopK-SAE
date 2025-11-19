@@ -17,6 +17,7 @@ class HardConcreteTopKSAEConfig(SAEConfig):
     # Optional: dead-feature mitigation via auxiliary Top-K on the *inactive* set
     aux_k: int | None = Field(None, description="Auxiliary K for dead-feature loss (select top aux_k from the inactive set)")
     aux_coeff: float | None = Field(None, description="Coefficient for the auxiliary reconstruction loss")
+    dead_toks_threshold: int | None = Field(None, description="Threshold for considering a feature as dead (number of tokens)")
     
     initial_beta: float = Field(5.0, description="Initial beta for hard concrete sampling")
     final_beta: float | None = Field(None, description="Final beta for hard concrete sampling")
@@ -51,6 +52,8 @@ class HardConcreteTopKSAEOutput(SAEOutput):
     scores: Float[torch.Tensor, "... c"]   # scores of the selected Top-K indices
     z: Float[torch.Tensor, "... c"]        # hard concrete samples
     gate_logits: Float[torch.Tensor, "... c"] | None = None # gate logits
+    auxk_indices: torch.Tensor | None = None  # auxiliary top-k indices for dead latents (shape: ... x aux_k)
+    auxk_values: torch.Tensor | None = None   # auxiliary top-k values for dead latents (shape: ... x aux_k)
 
 
 class HardConcreteTopKSAE(BaseSAE):
@@ -63,6 +66,7 @@ class HardConcreteTopKSAE(BaseSAE):
         mse_coeff: float | None = None,
         aux_k: int | None = None,
         aux_coeff: float | None = None,
+        dead_toks_threshold: int | None = None,
         init_decoder_orthogonal: bool = True,
         tied_encoder_init: bool = True,
         initial_beta: float = 5.0,
@@ -89,6 +93,7 @@ class HardConcreteTopKSAE(BaseSAE):
             mse_coeff: Coefficient on MSE reconstruction loss (default 1.0).
             aux_k: If provided (>0), number of auxiliary features from the inactive set.
             aux_coeff: Coefficient on the auxiliary reconstruction loss (default 0.0 if aux_k is None).
+            dead_toks_threshold: Threshold for considering a feature as dead (number of tokens).
             init_decoder_orthogonal: Initialize decoder weight columns to be orthonormal.
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
             initial_beta: Initial beta for hard concrete sampling.
@@ -115,6 +120,7 @@ class HardConcreteTopKSAE(BaseSAE):
 
         self.aux_k = int(aux_k) if aux_k is not None and aux_k > 0 else 0
         self.aux_coeff = (aux_coeff if aux_coeff is not None else 0.0) if self.aux_k > 0 else 0.0
+        self.dead_toks_threshold = int(dead_toks_threshold) if dead_toks_threshold is not None else None
 
         # Bias used for input centering and added back on decode
         self.decoder_bias = torch.nn.Parameter(torch.zeros(input_size))
@@ -161,6 +167,22 @@ class HardConcreteTopKSAE(BaseSAE):
         self.detach_decoder_bias = detach_decoder_bias
         self.use_hard_concrete = use_hard_concrete
         self.use_layer_norm = use_layer_norm
+        
+        # Dead latent tracking
+        self.register_buffer("stats_last_nonzero", torch.zeros(n_dict_components, dtype=torch.long))
+        
+        # Create auxk_mask_fn for masking alive latents
+        def auxk_mask_fn(x: torch.Tensor) -> torch.Tensor:
+            """Mask out alive latents by zeroing those that have been active recently."""
+            if self.dead_toks_threshold is None:
+                return x
+            dead_mask = self.stats_last_nonzero > self.dead_toks_threshold
+            # Expand dead_mask to match x dimensions
+            dead_mask = dead_mask.view(1, -1).expand_as(x)
+            # Return masked tensor (creating new tensor to avoid mutation)
+            return x * dead_mask.to(x.dtype)
+        
+        self.auxk_mask_fn = auxk_mask_fn
 
     def sample_hard_concrete(self, logits: torch.Tensor):
         if self.training:
@@ -203,6 +225,7 @@ class HardConcreteTopKSAE(BaseSAE):
             x_centered = x - self.decoder_bias
         preacts = self.encoder(x_centered)
 
+        gate_logits = None
         if self.use_hard_concrete:
             if self.use_layer_norm:
                 gate_logits = self.gate_ln(preacts)
@@ -237,9 +260,47 @@ class HardConcreteTopKSAE(BaseSAE):
             c = (preacts * mask) * (self.z_scale + z)
         else:
             c = preacts * mask
+        
+        # Update dead latent statistics if training
+        if self.training and self.dead_toks_threshold is not None:
+            with torch.no_grad():
+                # Flatten batch dimensions for statistics update
+                flat_c = c.reshape(-1, c.shape[-1])
+                
+                # Create a tensor to track which latents were activated (> 1e-3)
+                tmp = torch.zeros_like(self.stats_last_nonzero)
+                activated_mask = (flat_c.abs() > 1e-3).any(dim=0)
+                
+                # Reset counter for activated latents
+                self.stats_last_nonzero *= (~activated_mask).long()
+                # Increment counter for all latents
+                self.stats_last_nonzero += 1
+        
+        # Compute auxiliary top-k indices and values for dead latents
+        auxk_indices = None
+        auxk_values = None
+        
+        if self.aux_k > 0 and self.aux_coeff > 0.0 and self.dead_toks_threshold is not None:
+            # Apply mask to get only dead latents
+            masked_preacts = self.auxk_mask_fn(preacts)
+            
+            # Get top-k among dead latents
+            if masked_preacts.abs().max() > 0:  # Only if there are dead latents
+                auxk_values, auxk_indices = torch.topk(masked_preacts, k=min(self.aux_k, masked_preacts.shape[-1]), dim=-1)
 
         x_hat = F.linear(c, self.dict_elements, bias=self.decoder_bias)
-        return HardConcreteTopKSAEOutput(input=x, c=c, output=x_hat, z=z, preacts=preacts, mask=mask, scores=scores)
+        return HardConcreteTopKSAEOutput(
+            input=x, 
+            c=c, 
+            output=x_hat, 
+            z=z, 
+            preacts=preacts, 
+            mask=mask, 
+            scores=scores,
+            gate_logits=gate_logits,
+            auxk_indices=auxk_indices,
+            auxk_values=auxk_values
+        )
 
 
     def compute_loss(self, output: HardConcreteTopKSAEOutput) -> SAELoss:
@@ -247,9 +308,8 @@ class HardConcreteTopKSAE(BaseSAE):
         Loss = mse_coeff * MSE + aux_coeff * AuxK (optional)
 
         - No explicit L1 sparsity term (sparsity enforced by Top-K).
-        - AuxK: select top aux_k features from the *inactive* set (per-sample),
-          reconstruct with a detached decoder to provide gradient to "dead" features
-          without moving the decoder, then compute an auxiliary MSE to the input.
+        - AuxK: Reconstruct the residual error (input - main_reconstruction) using dead latents
+          to provide gradient signal to features that haven't been active recently.
         """
         mse_loss = F.mse_loss(output.output, output.input)
         total_loss = self.mse_coeff * mse_loss
@@ -260,6 +320,41 @@ class HardConcreteTopKSAE(BaseSAE):
             "z_mean": output.z.mean().detach().clone(),
             "z_std": output.z.std().detach().clone(),
         }
+        
+        # Optional auxiliary dead-feature loss using residual reconstruction
+        if (self.aux_k > 0 and self.aux_coeff > 0.0 and 
+            output.auxk_indices is not None and output.auxk_values is not None):
+            
+            # Decode auxiliary latents
+            # Create sparse representation for auxiliary latents
+            aux_c = torch.zeros_like(output.preacts)
+            aux_c.scatter_(-1, output.auxk_indices, output.auxk_values)
+            
+            # Decode auxiliary latents (no bias, as we're reconstructing residual)
+            x_hat_aux = F.linear(aux_c, self.dict_elements)
+            
+            # Compute residual target: input - main_reconstruction + bias
+            # The bias is added back because we want auxiliary latents to help reconstruct
+            # the part not captured by main latents
+            residual_target = output.input - output.output.detach() + self.decoder_bias.detach()
+            
+            # Normalized MSE for auxiliary loss
+            # Avoid division by zero with small epsilon
+            residual_norm = torch.norm(residual_target, p=2, dim=-1, keepdim=True)
+            aux_recon_norm = torch.norm(x_hat_aux, p=2, dim=-1, keepdim=True)
+            
+            normalized_aux_loss = F.mse_loss(
+                x_hat_aux / (aux_recon_norm + 1e-8),
+                residual_target / (residual_norm + 1e-8)
+            )
+            
+            aux_loss = normalized_aux_loss.nan_to_num(0.0)
+            total_loss = total_loss + self.aux_coeff * aux_loss
+            loss_dict["aux_loss"] = aux_loss.detach().clone()
+        else:
+            # No auxiliary loss
+            loss_dict["aux_loss"] = torch.zeros((), device=output.input.device)
+        
         return SAELoss(loss=total_loss, loss_dict=loss_dict)
 
     @property
