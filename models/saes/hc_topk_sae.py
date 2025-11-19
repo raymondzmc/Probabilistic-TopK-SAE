@@ -168,7 +168,7 @@ class HardConcreteTopKSAE(BaseSAE):
         self.use_hard_concrete = use_hard_concrete
         self.use_layer_norm = use_layer_norm
         
-        # Dead latent tracking
+        # Dead latent tracking - counts tokens since last activation
         self.register_buffer("stats_last_nonzero", torch.zeros(n_dict_components, dtype=torch.long))
         
         # Create auxk_mask_fn for masking alive latents
@@ -267,14 +267,16 @@ class HardConcreteTopKSAE(BaseSAE):
                 # Flatten batch dimensions for statistics update
                 flat_c = c.reshape(-1, c.shape[-1])
                 
-                # Create a tensor to track which latents were activated (> 1e-3)
-                tmp = torch.zeros_like(self.stats_last_nonzero)
+                # Count number of tokens in this batch
+                n_tokens = flat_c.shape[0]  # batch_size * sequence_length
+                
+                # A latent is considered activated if it fires (> 1e-3) for ANY token in the batch
                 activated_mask = (flat_c.abs() > 1e-3).any(dim=0)
                 
                 # Reset counter for activated latents
                 self.stats_last_nonzero *= (~activated_mask).long()
-                # Increment counter for all latents
-                self.stats_last_nonzero += 1
+                # Increment counter by number of tokens for all latents
+                self.stats_last_nonzero += n_tokens
         
         # Compute auxiliary top-k indices and values for dead latents
         auxk_indices = None
@@ -348,7 +350,13 @@ class HardConcreteTopKSAE(BaseSAE):
                 residual_target / (residual_norm + 1e-8)
             )
             
+            # Safety: Replace NaN with 0 to prevent training instability
             aux_loss = normalized_aux_loss.nan_to_num(0.0)
+            
+            # Additional check: if aux_loss is still NaN or inf, zero it out
+            if torch.isnan(aux_loss).any() or torch.isinf(aux_loss).any():
+                aux_loss = torch.zeros_like(aux_loss)
+            
             total_loss = total_loss + self.aux_coeff * aux_loss
             loss_dict["aux_loss"] = aux_loss.detach().clone()
         else:
