@@ -11,7 +11,7 @@ tlens_model_path: null
 # Training Configuration
 save_every_n_samples: null
 eval_every_n_samples: 40_000
-gradient_accumulation_steps: 4
+gradient_accumulation_steps: 8
 lr: 5e-4
 lr_schedule: cosine
 min_lr_factor: 0.1
@@ -51,6 +51,6 @@ saes:
   sparsity_coeff: null
   k: 32
   tied_encoder_init: true
-  aux_k: null
-  aux_coeff: null
-  dead_toks_threshold: null
+  aux_k: 512
+  aux_coeff: 0.03125
+  dead_toks_threshold: 10_000_000

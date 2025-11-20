@@ -1,7 +1,7 @@
 # Experiment Settings
 wandb_project: gpt2-small
-wandb_run_name: probabilistic_topk
-wandb_tags: ["hc_topk"]
+wandb_run_name: null
+wandb_tags: ["batch_topk"]
 seed: 42
 
 # Model Configuration  
@@ -11,7 +11,7 @@ tlens_model_path: null
 # Training Configuration
 save_every_n_samples: null
 eval_every_n_samples: 40_000
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 8
 lr: 5e-4
 lr_schedule: cosine
 min_lr_factor: 0.1
@@ -27,17 +27,17 @@ data:
   n_train_samples: 300_000
   n_eval_samples: 1_000
   train_batch_size: 8
-  eval_batch_size: 8
+  eval_batch_size: 1
   streaming: true
   seed: null
   is_tokenized: true
   column_name: "input_ids"
   split: "train"
 
-# SAE Configuration - Hard Concrete SAE with learned gates
+# SAE Configuration - Batch Top-K SAE
 saes:
-  name: "hardconcrete_topk_sae"
-  sae_type: "hard_concrete_topk"
+  name: "batch_topk_sae"
+  sae_type: "batch_topk"
   dict_size_to_input_ratio: 32.0
   pretrained_sae_paths: null
   retrain_saes: false
@@ -51,20 +51,9 @@ saes:
   sparsity_coeff: null
   k: 32
   tied_encoder_init: true
-  initial_beta: 5.0
-  final_beta: 1e-4
-  use_magnitude: true
-  straight_through: false
-  tau: null
-  anneal_ratio: null
-  normalize_scores: true
-  normalize_magnitude: false
-  add_magnitude_to_scores: true
-  z_scale: 1.0
-  magnitude_scale: 1e-4
-  use_hard_concrete: true
-  use_layer_norm: true
+  # Auxiliary loss parameters for dead feature mitigation
   aux_k: 512
   aux_coeff: 0.03125
   dead_toks_threshold: 10_000_000
-  
+  # Input preprocessing
+  input_unit_norm: false

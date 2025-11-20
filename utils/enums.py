@@ -12,6 +12,8 @@ class SAEType(str, Enum):
     GUMBEL_TOPK = "gumbel_topk"
     VI_TOPK = "vi_topk"
     HARD_CONCRETE_TOPK = "hard_concrete_topk"
+    BATCH_TOPK = "batch_topk"
+    JUMP_RELU = "jump_relu"
     # Add more SAE types as needed
 
 

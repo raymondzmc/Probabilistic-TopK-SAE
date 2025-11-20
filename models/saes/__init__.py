@@ -10,6 +10,8 @@ from models.saes.gumbel_topk_sae import GumbelTopKSAE, GumbelTopKSAEConfig, Gumb
 from models.saes.topk_sae import TopKSAE, TopKSAEConfig, TopKSAEOutput
 from models.saes.vi_sae import VITopKSAE, VITopKSAEConfig, VITopKSAEOutput
 from models.saes.hc_topk_sae import HardConcreteTopKSAE, HardConcreteTopKSAEConfig, HardConcreteTopKSAEOutput
+from models.saes.batch_topk_sae import BatchTopKSAE, BatchTopKSAEConfig, BatchTopKSAEOutput
+from models.saes.jumprelu_sae import JumpReLUSAE, JumpReLUSAEConfig, JumpReLUSAEOutput
 from utils.enums import SAEType
 from typing import Any, Union
 import inspect
@@ -33,6 +35,8 @@ SAE_TYPE_TO_CONFIG = {
     SAEType.GUMBEL_TOPK: GumbelTopKSAEConfig,
     SAEType.VI_TOPK: VITopKSAEConfig,
     SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAEConfig,
+    SAEType.BATCH_TOPK: BatchTopKSAEConfig,
+    SAEType.JUMP_RELU: JumpReLUSAEConfig,
 }
 
 
@@ -46,6 +50,8 @@ SAE_TYPE_TO_CLS = {
     SAEType.GUMBEL_TOPK: GumbelTopKSAE,
     SAEType.VI_TOPK: VITopKSAE,
     SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAE,
+    SAEType.BATCH_TOPK: BatchTopKSAE,
+    SAEType.JUMP_RELU: JumpReLUSAE,
 }
 
 assert set(SAE_TYPE_TO_CONFIG.keys()) == set(SAE_TYPE_TO_CLS.keys()), f"SAE_TYPE_TO_CONFIG.keys(): {SAE_TYPE_TO_CONFIG.keys()} != SAE_TYPE_TO_CLS.keys(): {SAE_TYPE_TO_CLS.keys()}"
@@ -107,6 +113,12 @@ __all__ = [
     "HardConcreteTopKSAE",
     "HardConcreteTopKSAEConfig",
     "HardConcreteTopKSAEOutput",
+    "BatchTopKSAE",
+    "BatchTopKSAEConfig",
+    "BatchTopKSAEOutput",
+    "JumpReLUSAE",
+    "JumpReLUSAEConfig",
+    "JumpReLUSAEOutput",
     "create_sae_config",
     "AllSAEConfigs",
 ]
