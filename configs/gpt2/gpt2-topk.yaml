@@ -27,7 +27,7 @@ data:
   n_train_samples: 300_000
   n_eval_samples: 1_000
   train_batch_size: 8
-  eval_batch_size: 4
+  eval_batch_size: 1
   streaming: true
   seed: null
   is_tokenized: true
