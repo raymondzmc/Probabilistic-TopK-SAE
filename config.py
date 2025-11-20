@@ -105,7 +105,22 @@ class Config(BaseModel):
             assert self.cooldown_samples == 0, "Cosine schedule must not have cooldown_samples."
         return self
 
+    @model_validator(mode="after")
+    def validate_gradient_accumulation_divisibility(self) -> "Config":
+        """Ensure train_batch_size is divisible by gradient_accumulation_steps."""
+        if self.data.train_batch_size % self.gradient_accumulation_steps != 0:
+            raise ValueError(
+                f"train_batch_size ({self.data.train_batch_size}) must be divisible by "
+                f"gradient_accumulation_steps ({self.gradient_accumulation_steps})"
+            )
+        return self
+
+    @property
+    def mini_batch_size(self) -> int:
+        """Mini-batch size for each forward pass (train_batch_size / gradient_accumulation_steps)."""
+        return self.data.train_batch_size // self.gradient_accumulation_steps
+
     @property
     def effective_batch_size(self) -> int:
-        """Effective batch size is the product of the train batch size and the gradient accumulation steps."""
-        return self.data.train_batch_size * self.gradient_accumulation_steps
+        """Effective batch size is now just the train_batch_size (total batch size per gradient update)."""
+        return self.data.train_batch_size

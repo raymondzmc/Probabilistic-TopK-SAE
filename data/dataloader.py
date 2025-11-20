@@ -176,6 +176,7 @@ def create_dataloaders(
     global_seed: int = 0,
     buffer_size: int = 1000,
     quick_eval: bool = False,
+    mini_batch_size: int | None = None,
 ) -> tuple[DataLoader, DataLoader | None]:
     """Create train and eval DataLoaders with separate splits from simplified config.
     
@@ -184,11 +185,15 @@ def create_dataloaders(
         global_seed: Global seed for reproducibility
         buffer_size: Buffer size for streaming datasets
         quick_eval: If True, use different random seed for eval instead of skipping train samples
+        mini_batch_size: If provided, use this as the batch size for training instead of train_batch_size.
+                        This is used for gradient accumulation where mini_batch_size < train_batch_size.
         
     Returns:
         Tuple of (train_loader, eval_loader)
         eval_loader is None if n_eval_samples is None
     """
+    # Use mini_batch_size if provided, otherwise use train_batch_size
+    actual_train_batch_size = mini_batch_size if mini_batch_size is not None else data_config.train_batch_size
     # Load and prepare dataset
     dataset = load_dataset(data_config.dataset_name, streaming=data_config.streaming, split=data_config.split)
     seed = data_config.seed if data_config.seed is not None else global_seed
@@ -268,10 +273,10 @@ def create_dataloaders(
     # Use StreamingDataLoader for streaming datasets, regular DataLoader for others
     if data_config.streaming:
         # Calculate expected number of batches for streaming datasets
-        expected_train_batches = math.ceil(data_config.n_train_samples / data_config.train_batch_size)
+        expected_train_batches = math.ceil(data_config.n_train_samples / actual_train_batch_size)
         train_loader = StreamingDataLoader(
             train_torch_dataset,
-            batch_size=data_config.train_batch_size,
+            batch_size=actual_train_batch_size,
             shuffle=False,  # Already shuffled the base dataset
             expected_length=expected_train_batches,
         )
@@ -289,7 +294,7 @@ def create_dataloaders(
         # Use regular DataLoader for non-streaming datasets
         train_loader = DataLoader(
             train_torch_dataset,
-            batch_size=data_config.train_batch_size,
+            batch_size=actual_train_batch_size,
             shuffle=False,  # Already shuffled the base dataset
         )
 

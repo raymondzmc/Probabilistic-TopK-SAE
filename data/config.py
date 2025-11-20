@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, computed_field
 
 
 class DataConfig(BaseModel):
@@ -24,3 +24,9 @@ class DataConfig(BaseModel):
     is_tokenized: bool = False
     column_name: str = "text"  # Column name in dataset
     split: str = "train"  # Which split to use from dataset
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def effective_eval_batch_size(self) -> int:
+        """Get the effective evaluation batch size."""
+        return self.eval_batch_size if self.eval_batch_size is not None else self.train_batch_size
