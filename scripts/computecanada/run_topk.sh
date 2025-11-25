@@ -1,4 +1,3 @@
-
 #!/bin/bash
 #SBATCH --account=def-carenini
 #SBATCH --time=24:00:00
