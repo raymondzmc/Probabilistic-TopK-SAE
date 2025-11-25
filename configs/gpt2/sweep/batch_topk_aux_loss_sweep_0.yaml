@@ -1,1 +1,4 @@
 k: [8, 16]
+aux_k: [512]
+aux_coeff: [0.03125]
+dead_toks_threshold: [10_000_000]

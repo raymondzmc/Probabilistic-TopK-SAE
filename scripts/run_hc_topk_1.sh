@@ -11,7 +11,7 @@ export CUDA_VISIBLE_DEVICES=1
 
 # python evaluation.py \
 # --wandb_project raymondl/gpt2-small \
-# --filter_runs_by_name dgated_sparsity_coeff_0.09 \
+# --filter_runs_by_name gated_sparsity_coeff_0.09 \
 # --save_activation_data \
 # --generate_explanations \
 # --force_recompute_explanations \

@@ -27,7 +27,6 @@ from utils.logging import logger
 from utils.schedulers import (
     get_linear_lr_schedule,
     get_cosine_schedule_with_warmup,
-    get_exponential_beta_schedule,
 )
 from utils.metrics import all_metrics
 from settings import settings

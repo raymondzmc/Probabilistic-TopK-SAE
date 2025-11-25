@@ -87,26 +87,29 @@ def detect_sae_type(base_config: Dict[str, Any]) -> str:
     return sae_type
 
 
-def generate_parameter_combinations(sweep_config: Dict[str, Any], sae_type: str) -> List[Dict[str, Any]]:
+def generate_parameter_combinations(sweep_config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Generate all parameter combinations based on sweep config, agnostic to parameter names."""
     
-    # Get all parameter grids from sweep config
+    # Reserved keys that are not parameters
+    reserved_keys = {'max_experiments'}
+    
+    # Get all parameter grids from sweep config (list values)
     param_grids = {}
+    # Get fixed parameters from sweep config (non-list values)
+    fixed_params = {}
     
-    # Add top-level parameters (like learning rates)
     for param_name, values in sweep_config.items():
-        if param_name not in ['sae_specific', 'max_experiments'] and isinstance(values, list):
-            param_grids[param_name] = values
-    
-    # Add SAE-specific parameters if they exist
-    sae_specific = sweep_config.get('sae_specific', {})
-    for param_name, values in sae_specific.items():
+        if param_name in reserved_keys:
+            continue
         if isinstance(values, list):
             param_grids[param_name] = values
+        else:
+            # Non-list values are fixed parameters applied to all experiments
+            fixed_params[param_name] = values
     
     if not param_grids:
         logger.warning("No parameter grids found in sweep config. Using single default combination.")
-        return [{}]
+        return [fixed_params] if fixed_params else [{}]
     
     # Generate all combinations
     param_names = list(param_grids.keys())
@@ -115,6 +118,8 @@ def generate_parameter_combinations(sweep_config: Dict[str, Any], sae_type: str)
     combinations = []
     for values in product(*param_values):
         combination = dict(zip(param_names, values))
+        # Add fixed parameters to each combination
+        combination.update(fixed_params)
         combinations.append(combination)
     
     # Apply max_experiments limit if specified
@@ -182,27 +187,6 @@ def create_experiment_config(base_config: Dict[str, Any], params: Dict[str, Any]
     experiment_config['_params'] = params
     
     return experiment_config
-
-
-def save_experiment_configs(configs: List[Dict[str, Any]], output_dir: Path) -> List[Path]:
-    """Save experiment configs with timestamps and return paths."""
-    output_dir.mkdir(exist_ok=True)
-    config_paths = []
-    
-    # Create timestamp for this run
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    
-    for i, config in enumerate(configs):
-        # Remove metadata before saving
-        clean_config = {k: v for k, v in config.items() if not k.startswith('_')}
-        
-        # Add timestamp to filename to avoid conflicts
-        config_path = output_dir / f"experiment_{timestamp}_{i:03d}.yaml"
-        with open(config_path, 'w') as f:
-            yaml.dump(clean_config, f, default_flow_style=False, sort_keys=False)
-        config_paths.append(config_path)
-    
-    return config_paths
 
 
 def run_single_experiment(config_path: Path, device_id: str, use_tmux: bool = True) -> tuple[str, int, str]:
@@ -493,8 +477,6 @@ def main():
                         help="Just show available devices and exit")
     parser.add_argument("--limit", type=int, default=None,
                         help="Override max_experiments from sweep config")
-    parser.add_argument("--output_dir", type=str, default='./output',
-                        help="Directory to save experiment configs (for inspection)")
 
     args = parser.parse_args()
     
@@ -526,7 +508,7 @@ def main():
     sae_type = detect_sae_type(base_config)
     logger.info(f"Detected SAE type: {sae_type}")
     
-    param_combinations = generate_parameter_combinations(sweep_config, sae_type)
+    param_combinations = generate_parameter_combinations(sweep_config)
     
     # Apply limit override if specified
     if args.limit and len(param_combinations) > args.limit:
@@ -586,16 +568,16 @@ def main():
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Save experiment configs to output directory with timestamps
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(exist_ok=True)
-    config_paths = save_experiment_configs(experiment_configs, output_dir)
-    logger.info(f"Saved {len(config_paths)} experiment configs to {output_dir} with timestamps")
-
+    # Run experiments
     start_time = time.time()
-    for config in config_paths:
+    for i, config in enumerate(experiment_configs):
+        # Remove metadata before running
+        clean_config = {k: v for k, v in config.items() if not k.startswith('_')}
+        
+        logger.info(f"Running experiment {i+1}/{len(experiment_configs)}")
         # Convert device string to torch.device object if specified
-        run(config, device=device)
+        run(clean_config, device=device)
+        
     total_duration = time.time() - start_time
     logger.info(f"Total duration: {total_duration:.1f}s ({total_duration/60:.1f} minutes)")
 

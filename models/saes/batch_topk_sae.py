@@ -19,6 +19,7 @@ class BatchTopKSAEConfig(SAEConfig):
     - Applies Top-K selection across the entire batch (flattened) rather than per-sample
     - Supports auxiliary loss for dead feature mitigation
     - Optionally applies input unit normalization
+    - Learns a running threshold for inference (when batch top-k isn't applicable)
     """
     sae_type: SAEType = Field(default=SAEType.BATCH_TOPK, description="Type of SAE (automatically set to batch_topk)")
     k: int = Field(..., description="Number of active features to keep per sample")
@@ -31,6 +32,9 @@ class BatchTopKSAEConfig(SAEConfig):
     
     # Input preprocessing
     input_unit_norm: bool = Field(False, description="Apply unit normalization to inputs")
+    
+    # Running threshold for inference
+    threshold_momentum: float = Field(0.99, description="Momentum for running threshold EMA update")
 
     @model_validator(mode="before")
     @classmethod
@@ -74,6 +78,7 @@ class BatchTopKSAE(BaseSAE):
         init_decoder_orthogonal: bool = True,
         tied_encoder_init: bool = True,
         input_unit_norm: bool = False,
+        threshold_momentum: float = 0.99,
     ):
         """
         Args:
@@ -88,6 +93,7 @@ class BatchTopKSAE(BaseSAE):
             init_decoder_orthogonal: Initialize decoder weight columns to be orthonormal.
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
             input_unit_norm: Apply unit normalization to inputs.
+            threshold_momentum: Momentum for running threshold EMA update.
         """
         super().__init__()
         assert k >= 0, "k must be non-negative"
@@ -108,6 +114,10 @@ class BatchTopKSAE(BaseSAE):
 
         # Input preprocessing flag
         self.input_unit_norm = input_unit_norm
+        
+        # Running threshold for inference (use double precision for numerical stability, as in SAELens)
+        self.threshold_momentum = threshold_momentum
+        self.register_buffer("running_threshold", torch.tensor(0.0, dtype=torch.double))
 
         # Bias used for input centering and added back on decode
         self.decoder_bias = nn.Parameter(torch.zeros(input_size))
@@ -128,8 +138,21 @@ class BatchTopKSAE(BaseSAE):
         if tied_encoder_init:
             self.encoder.weight.data.copy_(self.decoder.weight.data.T)
 
-        # Dead latent tracking - counts batches since last activation
-        self.register_buffer("num_batches_not_active", torch.zeros(n_dict_components, dtype=torch.float32))
+        # Dead latent tracking - counts tokens since last activation
+        self.register_buffer("stats_last_nonzero", torch.zeros(n_dict_components, dtype=torch.long))
+        
+        # Create auxk_mask_fn for masking alive latents
+        def auxk_mask_fn(x: torch.Tensor) -> torch.Tensor:
+            """Mask out alive latents by zeroing those that have been active recently."""
+            if self.dead_toks_threshold is None:
+                return x
+            dead_mask = self.stats_last_nonzero > self.dead_toks_threshold
+            # Expand dead_mask to match x dimensions
+            dead_mask = dead_mask.view(1, -1).expand_as(x)
+            # Return masked tensor (creating new tensor to avoid mutation)
+            return x * dead_mask.to(x.dtype)
+        
+        self.auxk_mask_fn = auxk_mask_fn
 
     def _preprocess_input(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """Apply optional unit normalization to inputs."""
@@ -172,18 +195,62 @@ class BatchTopKSAE(BaseSAE):
         
         return acts_topk, mask
 
-    def _update_dead_features(self, acts: torch.Tensor) -> None:
-        """Update dead feature tracking statistics."""
-        # Increment counter for all features
-        self.num_batches_not_active += 1.0
+    def _update_dead_features(self, acts: torch.Tensor, n_tokens: int) -> None:
+        """Update dead feature tracking statistics.
         
-        # Reset counter for features that are active (any activation > 0)
-        active_mask = (acts.sum(0) > 0)
-        self.num_batches_not_active[active_mask] = 0.0
+        Args:
+            acts: Activations tensor (batch_size, n_dict_components)
+            n_tokens: Number of tokens in this batch (batch_size * seq_len)
+        """
+        # A latent is considered activated if it fires (> 1e-3) for ANY token in the batch
+        activated_mask = (acts.abs() > 1e-3).any(dim=0)
+        
+        # Reset counter for activated latents
+        self.stats_last_nonzero *= (~activated_mask).long()
+        # Increment counter by number of tokens for all latents
+        self.stats_last_nonzero += n_tokens
+
+    @torch.no_grad()
+    def _update_running_threshold(self, acts: torch.Tensor) -> None:
+        """Update running threshold based on minimum positive activation after batch top-k.
+        
+        This threshold is used during inference when batch top-k isn't applicable.
+        Following SAELens implementation for numerical stability.
+        
+        Args:
+            acts: Activations after batch top-k (sparse tensor with selected values)
+        """
+        positive_mask = acts > 0
+        
+        # Disable autocast to prevent numerical issues (following SAELens)
+        with torch.autocast(self.running_threshold.device.type, enabled=False):
+            if positive_mask.any():
+                min_positive = acts[positive_mask].min().to(self.running_threshold.dtype)
+                lr = 1 - self.threshold_momentum  # Convert momentum to learning rate
+                self.running_threshold = (1 - lr) * self.running_threshold + lr * min_positive
+
+    def _apply_threshold(self, acts: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply learned threshold during inference (JumpReLU-style).
+        
+        Args:
+            acts: Pre-activations (after ReLU, before sparsification)
+            
+        Returns:
+            acts_sparse: Activations with values below threshold zeroed out
+            mask: Binary mask of active features
+        """
+        # Convert threshold to acts dtype for comparison
+        threshold = self.running_threshold.to(acts.dtype)
+        mask = (acts > threshold).float()
+        acts_sparse = acts * mask
+        return acts_sparse, mask
 
     def forward(self, x: Float[torch.Tensor, "... dim"]) -> BatchTopKSAEOutput:
         """
         Forward pass (supports arbitrary leading batch dims; last dim == input_size).
+        
+        During training: Uses batch-level top-k selection and updates running threshold.
+        During inference: Uses learned threshold for sparsification.
         """
         # Store original shape and flatten batch dimensions
         original_shape = x.shape
@@ -199,31 +266,37 @@ class BatchTopKSAE(BaseSAE):
         # Encoder preactivations
         preacts = F.relu(self.encoder(x_centered))
         
-        # Batch-level Top-K sparsification
-        acts_topk, mask = self._apply_batch_topk(preacts, batch_size)
+        # Apply sparsification: batch top-k during training, threshold during inference
+        if self.training:
+            # Batch-level Top-K sparsification
+            acts_topk, mask = self._apply_batch_topk(preacts, batch_size)
+            
+            # Update running threshold for inference
+            self._update_running_threshold(acts_topk)
+        else:
+            # Use learned threshold during inference
+            acts_topk, mask = self._apply_threshold(preacts)
         
-        # Update dead feature statistics
+        # Update dead feature statistics (counting tokens, not batches)
         if self.training and self.dead_toks_threshold is not None:
-            self._update_dead_features(acts_topk)
+            with torch.no_grad():
+                self._update_dead_features(acts_topk, n_tokens=batch_size)
         
         # Compute auxiliary indices for dead features if needed
         auxk_indices = None
         auxk_values = None
         
         if self.aux_k > 0 and self.aux_coeff > 0.0 and self.dead_toks_threshold is not None:
-            dead_mask = self.num_batches_not_active >= self.dead_toks_threshold
+            # Apply mask to get only dead latents (inactive for > dead_toks_threshold tokens)
+            masked_preacts = self.auxk_mask_fn(preacts)
             
-            if dead_mask.sum() > 0:
-                # Get activations only for dead features
-                acts_dead = preacts[:, dead_mask]
-                
-                # Apply top-k to dead features
-                k_aux = min(self.aux_k, dead_mask.sum().item())
-                auxk_values, auxk_indices_local = torch.topk(acts_dead, k=k_aux, dim=-1)
-                
-                # Convert local indices to global feature indices
-                dead_feature_indices = torch.where(dead_mask)[0]
-                auxk_indices = dead_feature_indices[auxk_indices_local]
+            # Get top-k among dead latents
+            if masked_preacts.abs().max() > 0:  # Only if there are dead latents
+                auxk_values, auxk_indices = torch.topk(
+                    masked_preacts, 
+                    k=min(self.aux_k, masked_preacts.shape[-1]), 
+                    dim=-1
+                )
         
         # Decode using normalized dictionary elements + add bias back
         x_hat = F.linear(acts_topk, self.dict_elements, bias=self.decoder_bias)
@@ -270,29 +343,49 @@ class BatchTopKSAE(BaseSAE):
             mse_loss = F.mse_loss(output_for_loss, input_for_loss)
             
         total_loss = self.mse_coeff * mse_loss
-        loss_dict: dict[str, torch.Tensor] = {"mse_loss": mse_loss.detach().clone()}
+        loss_dict: dict[str, torch.Tensor] = {
+            "mse_loss": mse_loss.detach().clone(),
+            "topk_threshold": self.running_threshold.detach().clone().float(),
+        }
 
-        # Optional auxiliary dead-feature loss
+        # Optional auxiliary dead-feature loss using residual reconstruction
         if (self.aux_k > 0 and self.aux_coeff > 0.0 and 
             output.auxk_indices is not None and output.auxk_values is not None):
             
-            # Flatten batch dimensions for auxiliary computation
-            batch_size = output.input.shape[0] * (output.input.shape[1] if len(output.input.shape) > 2 else 1)
+            # Flatten inputs for auxiliary computation (batch_size, seq_len, dim) -> (batch*seq, dim)
+            original_shape = output.input.shape
             input_flat = output.input.reshape(-1, self.input_size)
             output_flat = output.output.reshape(-1, self.input_size)
+            preacts_flat = output.preacts.reshape(-1, self.n_dict_components)
             
             # Create sparse representation for auxiliary latents
-            aux_c = torch.zeros(batch_size, self.n_dict_components, device=output.input.device)
+            aux_c = torch.zeros_like(preacts_flat)
             aux_c.scatter_(-1, output.auxk_indices, output.auxk_values)
             
-            # Decode auxiliary latents (no bias for residual reconstruction)
+            # Decode auxiliary latents (no bias, as we're reconstructing residual)
             x_hat_aux = F.linear(aux_c, self.dict_elements)
             
-            # Compute residual
-            residual = input_flat - output_flat
+            # Compute residual target: input - main_reconstruction + bias
+            # The bias is added back because we want auxiliary latents to help reconstruct
+            # the part not captured by main latents
+            residual_target = input_flat - output_flat.detach() + self.decoder_bias.detach()
             
-            # Auxiliary loss
-            aux_loss = F.mse_loss(x_hat_aux, residual.detach())
+            # Normalized MSE for auxiliary loss
+            # Avoid division by zero with small epsilon
+            residual_norm = torch.norm(residual_target, p=2, dim=-1, keepdim=True)
+            aux_recon_norm = torch.norm(x_hat_aux, p=2, dim=-1, keepdim=True)
+            
+            normalized_aux_loss = F.mse_loss(
+                x_hat_aux / (aux_recon_norm + 1e-8),
+                residual_target / (residual_norm + 1e-8)
+            )
+            
+            # Safety: Replace NaN with 0 to prevent training instability
+            aux_loss = normalized_aux_loss.nan_to_num(0.0)
+            
+            # Additional check: if aux_loss is still NaN or inf, zero it out
+            if torch.isnan(aux_loss).any() or torch.isinf(aux_loss).any():
+                aux_loss = torch.zeros_like(aux_loss)
             
             total_loss = total_loss + self.aux_coeff * aux_loss
             loss_dict["aux_loss"] = aux_loss.detach().clone()

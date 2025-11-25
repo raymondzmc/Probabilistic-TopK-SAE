@@ -11,6 +11,7 @@ from models.saes.topk_sae import TopKSAE, TopKSAEConfig, TopKSAEOutput
 from models.saes.vi_sae import VITopKSAE, VITopKSAEConfig, VITopKSAEOutput
 from models.saes.hc_topk_sae import HardConcreteTopKSAE, HardConcreteTopKSAEConfig, HardConcreteTopKSAEOutput
 from models.saes.batch_topk_sae import BatchTopKSAE, BatchTopKSAEConfig, BatchTopKSAEOutput
+from models.saes.hc_batch_topk_sae import HardConcreteBatchTopKSAE, HardConcreteBatchTopKSAEConfig, HardConcreteBatchTopKSAEOutput
 from models.saes.jumprelu_sae import JumpReLUSAE, JumpReLUSAEConfig, JumpReLUSAEOutput
 from utils.enums import SAEType
 from typing import Any, Union
@@ -36,6 +37,7 @@ SAE_TYPE_TO_CONFIG = {
     SAEType.VI_TOPK: VITopKSAEConfig,
     SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAEConfig,
     SAEType.BATCH_TOPK: BatchTopKSAEConfig,
+    SAEType.HC_BATCH_TOPK: HardConcreteBatchTopKSAEConfig,
     SAEType.JUMP_RELU: JumpReLUSAEConfig,
 }
 
@@ -51,6 +53,7 @@ SAE_TYPE_TO_CLS = {
     SAEType.VI_TOPK: VITopKSAE,
     SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAE,
     SAEType.BATCH_TOPK: BatchTopKSAE,
+    SAEType.HC_BATCH_TOPK: HardConcreteBatchTopKSAE,
     SAEType.JUMP_RELU: JumpReLUSAE,
 }
 
@@ -116,6 +119,9 @@ __all__ = [
     "BatchTopKSAE",
     "BatchTopKSAEConfig",
     "BatchTopKSAEOutput",
+    "HardConcreteBatchTopKSAE",
+    "HardConcreteBatchTopKSAEConfig",
+    "HardConcreteBatchTopKSAEOutput",
     "JumpReLUSAE",
     "JumpReLUSAEConfig",
     "JumpReLUSAEOutput",

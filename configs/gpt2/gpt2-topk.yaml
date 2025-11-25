@@ -1,6 +1,6 @@
 # Experiment Settings
 wandb_project: gpt2-small
-wandb_run_name: null
+wandb_run_name: topk
 wandb_tags: ["topk"]
 seed: 42
 
@@ -11,7 +11,7 @@ tlens_model_path: null
 # Training Configuration
 save_every_n_samples: null
 eval_every_n_samples: 40_000
-gradient_accumulation_steps: 8
+gradient_accumulation_steps: 1
 lr: 5e-4
 lr_schedule: cosine
 min_lr_factor: 0.1
@@ -26,8 +26,8 @@ data:
   context_length: 1024
   n_train_samples: 300_000
   n_eval_samples: 1_000
-  train_batch_size: 8
-  eval_batch_size: 1
+  train_batch_size: 32
+  eval_batch_size: 8
   streaming: true
   seed: null
   is_tokenized: true
