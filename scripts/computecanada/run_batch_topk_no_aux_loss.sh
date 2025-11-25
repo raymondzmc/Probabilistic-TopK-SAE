@@ -1,12 +1,12 @@
 
 #!/bin/bash
 #SBATCH --account=def-carenini
-#SBATCH --time=16:00:00
+#SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:h100:1
 #SBATCH --constraint=h100
-#SBATCH --job-name=topk
+#SBATCH --job-name=batch_topk_no_aux_loss
 
 module load StdEnv/2023
 module load python/3.12.4
