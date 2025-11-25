@@ -6,6 +6,12 @@ Usage:
     python run_experiments.py --base_config configs/tinystories-gated.yaml --sweep_config sweep_configs/default_sweep.yaml
     python run_experiments.py --base_config configs/tinystories-hardconcrete.yaml --sweep_config sweep_configs/quick_test.yaml --devices cuda:0,cuda:1
 """
+# Suppress Pydantic warnings about Field() attributes that don't apply in certain contexts
+# (caused by jaxtyping's Annotated types used in Pydantic models)
+import warnings
+warnings.filterwarnings("ignore", message=".*'repr' attribute.*Field\\(\\).*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*'frozen' attribute.*Field\\(\\).*", category=UserWarning)
+
 import os
 import argparse
 import subprocess

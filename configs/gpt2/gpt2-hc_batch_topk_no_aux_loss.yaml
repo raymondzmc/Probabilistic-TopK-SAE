@@ -26,7 +26,7 @@ data:
   context_length: 1024
   n_train_samples: 300_000
   n_eval_samples: 1_000
-  train_batch_size: 32
+  train_batch_size: 8
   eval_batch_size: 8
   streaming: true
   seed: null
