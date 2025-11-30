@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=def-carenini
-#SBATCH --time=24:00:00
+#SBATCH --time=8:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:h100:1
@@ -17,4 +17,4 @@ source ~/venvs/sae/bin/activate
 
 python run_experiments.py \
 --base_config configs/gpt2/gpt2-batch_topk.yaml \
---sweep_config configs/gpt2/sweep/topk_sweep.yaml
+--sweep_config configs/gpt2/sweep/batch_topk_k_128.yaml
