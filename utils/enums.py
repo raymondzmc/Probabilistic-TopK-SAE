@@ -6,6 +6,7 @@ class SAEType(str, Enum):
     RELU = "relu"
     HARD_CONCRETE = "hard_concrete"
     LAGRANGIAN_HARD_CONCRETE = "lagrangean_hard_concrete"
+    LAGRANGIAN = "lagrangian"
     GATED = "gated"
     GATED_HARD_CONCRETE = "gated_hard_concrete"
     TOPK = "topk"

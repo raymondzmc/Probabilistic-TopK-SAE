@@ -2,6 +2,7 @@ from models.saes.base import SAEConfig, SAEOutput, BaseSAE, SAELoss
 from models.saes.relu_sae import ReluSAE, ReLUSAEConfig
 from models.saes.hc_sae import HardConcreteSAE, HardConcreteSAEConfig, HardConcreteSAEOutput
 from models.saes.lagrangian_hc_sae import LagrangianHardConcreteSAE, LagrangianHardConcreteSAEConfig, LagrangianHardConcreteSAEOutput
+from models.saes.lagrangian_sae import LagrangianSAE, LagrangianSAEConfig, LagrangianSAEOutput
 from models.saes.gated_sae import (
     GatedSAE, GatedSAEConfig, GatedSAEOutput,
     GatedHardConcreteSAE, GatedHardConcreteSAEConfig, GatedHardConcreteSAEOutput
@@ -29,6 +30,7 @@ AllSAEConfigs = Union[*ALL_SAE_CONFIGS]
 SAE_TYPE_TO_CONFIG = {
     SAEType.HARD_CONCRETE: HardConcreteSAEConfig,
     SAEType.LAGRANGIAN_HARD_CONCRETE: LagrangianHardConcreteSAEConfig,
+    SAEType.LAGRANGIAN: LagrangianSAEConfig,
     SAEType.RELU: ReLUSAEConfig,
     SAEType.GATED: GatedSAEConfig,
     SAEType.GATED_HARD_CONCRETE: GatedHardConcreteSAEConfig,
@@ -45,6 +47,7 @@ SAE_TYPE_TO_CONFIG = {
 SAE_TYPE_TO_CLS = {
     SAEType.HARD_CONCRETE: HardConcreteSAE,
     SAEType.LAGRANGIAN_HARD_CONCRETE: LagrangianHardConcreteSAE,
+    SAEType.LAGRANGIAN: LagrangianSAE,
     SAEType.RELU: ReluSAE,
     SAEType.GATED: GatedSAE,
     SAEType.GATED_HARD_CONCRETE: GatedHardConcreteSAE,
@@ -98,6 +101,9 @@ __all__ = [
     "LagrangianHardConcreteSAE",
     "LagrangianHardConcreteSAEConfig",
     "LagrangianHardConcreteSAEOutput",
+    "LagrangianSAE",
+    "LagrangianSAEConfig",
+    "LagrangianSAEOutput",
     "GatedSAE",
     "GatedSAEConfig",
     "GatedSAEOutput",

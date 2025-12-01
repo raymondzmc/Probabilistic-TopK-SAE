@@ -55,6 +55,8 @@ def get_activations_for_sae_type(sae_output, sae_type: SAEType) -> torch.Tensor:
         return sae_output.c
     elif sae_type == SAEType.LAGRANGIAN_HARD_CONCRETE:
         return sae_output.c
+    elif sae_type == SAEType.LAGRANGIAN:
+        return sae_output.c
     elif sae_type == SAEType.RELU:
         return sae_output.c
     elif sae_type == SAEType.GATED:

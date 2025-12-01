@@ -2,98 +2,14 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-import torch.autograd as autograd
 from typing import Any
 from pydantic import Field, model_validator
 from jaxtyping import Float
 
 from models.saes.base import BaseSAE, SAELoss, SAEOutput, SAEConfig
 from models.saes.utils import init_decoder_orthogonal_cuda
+from models.saes.activations import StepFunction, JumpReLU
 from utils.enums import SAEType
-
-
-class RectangleFunction(autograd.Function):
-    """Rectangle function with custom gradient for use in JumpReLU."""
-    
-    @staticmethod
-    def forward(ctx, x):
-        ctx.save_for_backward(x)
-        return ((x > -0.5) & (x < 0.5)).float()
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        (x,) = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input[(x <= -0.5) | (x >= 0.5)] = 0
-        return grad_input
-
-
-class JumpReLUFunction(autograd.Function):
-    """JumpReLU activation function with learned thresholds."""
-    
-    @staticmethod
-    def forward(ctx, x, log_threshold, bandwidth):
-        ctx.save_for_backward(x, log_threshold, torch.tensor(bandwidth))
-        threshold = torch.exp(log_threshold)
-        return x * (x > threshold).float()
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        x, log_threshold, bandwidth_tensor = ctx.saved_tensors
-        bandwidth = bandwidth_tensor.item()
-        threshold = torch.exp(log_threshold)
-        
-        # Gradient w.r.t. x
-        x_grad = (x > threshold).float() * grad_output
-        
-        # Gradient w.r.t. log_threshold
-        threshold_grad = (
-            -(threshold / bandwidth)
-            * RectangleFunction.apply((x - threshold) / bandwidth)
-            * grad_output
-        )
-        
-        return x_grad, threshold_grad, None  # None for bandwidth
-
-
-class StepFunction(autograd.Function):
-    """Step function for L0 computation with custom gradient."""
-    
-    @staticmethod
-    def forward(ctx, x, log_threshold, bandwidth):
-        ctx.save_for_backward(x, log_threshold, torch.tensor(bandwidth))
-        threshold = torch.exp(log_threshold)
-        return (x > threshold).float()
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        x, log_threshold, bandwidth_tensor = ctx.saved_tensors
-        bandwidth = bandwidth_tensor.item()
-        threshold = torch.exp(log_threshold)
-        
-        # No gradient w.r.t. x for step function
-        x_grad = torch.zeros_like(x)
-        
-        # Gradient w.r.t. log_threshold
-        threshold_grad = (
-            -(1.0 / bandwidth)
-            * RectangleFunction.apply((x - threshold) / bandwidth)
-            * grad_output
-        )
-        
-        return x_grad, threshold_grad, None  # None for bandwidth
-
-
-class JumpReLU(nn.Module):
-    """JumpReLU activation module with learnable thresholds."""
-    
-    def __init__(self, feature_size: int, bandwidth: float, device='cpu'):
-        super(JumpReLU, self).__init__()
-        self.log_threshold = nn.Parameter(torch.zeros(feature_size, device=device))
-        self.bandwidth = bandwidth
-    
-    def forward(self, x):
-        return JumpReLUFunction.apply(x, self.log_threshold, self.bandwidth)
 
 
 class JumpReLUSAEConfig(SAEConfig):

@@ -206,6 +206,9 @@ def train(
             for module in model.saes.modules():
                 if hasattr(module, 'train_progress'):
                     module.train_progress.copy_(progress_ratio)
+                # Perform dual ascent update for LagrangianSAE
+                if hasattr(module, 'update_alpha'):
+                    module.update_alpha()
 
         progress_ratio += 1.0 / len(train_loader)
         if is_log_step:
