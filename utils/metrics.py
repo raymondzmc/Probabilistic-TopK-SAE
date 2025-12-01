@@ -49,26 +49,9 @@ def explained_variance(
 def get_activations_for_sae_type(sae_output, sae_type: SAEType) -> torch.Tensor:
     """Get the appropriate activations tensor based on SAE type.
     
-    This matches the logic in evaluation.py lines 208-221.
+    All SAE types use sae_output.c as the main activations tensor.
     """
-    if sae_type == SAEType.HARD_CONCRETE:
-        return sae_output.c
-    elif sae_type == SAEType.LAGRANGIAN_HARD_CONCRETE:
-        return sae_output.c
-    elif sae_type == SAEType.LAGRANGIAN:
-        return sae_output.c
-    elif sae_type == SAEType.RELU:
-        return sae_output.c
-    elif sae_type == SAEType.GATED:
-        return sae_output.c
-    elif sae_type == SAEType.TOPK:
-        return sae_output.c
-    elif sae_type == SAEType.GUMBEL_TOPK:
-        return sae_output.c
-    elif sae_type == SAEType.VI_TOPK:
-        return sae_output.c
-    else:
-        return sae_output.c  # Default to main activations
+    return sae_output.c
 
 
 def compute_alive_dictionary_indices(activations: torch.Tensor) -> list[int]:

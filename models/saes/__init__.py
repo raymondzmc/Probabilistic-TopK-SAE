@@ -1,15 +1,9 @@
 from models.saes.base import SAEConfig, SAEOutput, BaseSAE, SAELoss
 from models.saes.relu_sae import ReluSAE, ReLUSAEConfig
 from models.saes.hc_sae import HardConcreteSAE, HardConcreteSAEConfig, HardConcreteSAEOutput
-from models.saes.lagrangian_hc_sae import LagrangianHardConcreteSAE, LagrangianHardConcreteSAEConfig, LagrangianHardConcreteSAEOutput
 from models.saes.lagrangian_sae import LagrangianSAE, LagrangianSAEConfig, LagrangianSAEOutput
-from models.saes.gated_sae import (
-    GatedSAE, GatedSAEConfig, GatedSAEOutput,
-    GatedHardConcreteSAE, GatedHardConcreteSAEConfig, GatedHardConcreteSAEOutput
-)
-from models.saes.gumbel_topk_sae import GumbelTopKSAE, GumbelTopKSAEConfig, GumbelTopKSAEOutput
+from models.saes.gated_sae import GatedSAE, GatedSAEConfig, GatedSAEOutput
 from models.saes.topk_sae import TopKSAE, TopKSAEConfig, TopKSAEOutput
-from models.saes.vi_sae import VITopKSAE, VITopKSAEConfig, VITopKSAEOutput
 from models.saes.hc_topk_sae import HardConcreteTopKSAE, HardConcreteTopKSAEConfig, HardConcreteTopKSAEOutput
 from models.saes.batch_topk_sae import BatchTopKSAE, BatchTopKSAEConfig, BatchTopKSAEOutput
 from models.saes.hc_batch_topk_sae import HardConcreteBatchTopKSAE, HardConcreteBatchTopKSAEConfig, HardConcreteBatchTopKSAEOutput
@@ -29,14 +23,10 @@ AllSAEConfigs = Union[*ALL_SAE_CONFIGS]
 
 SAE_TYPE_TO_CONFIG = {
     SAEType.HARD_CONCRETE: HardConcreteSAEConfig,
-    SAEType.LAGRANGIAN_HARD_CONCRETE: LagrangianHardConcreteSAEConfig,
     SAEType.LAGRANGIAN: LagrangianSAEConfig,
     SAEType.RELU: ReLUSAEConfig,
     SAEType.GATED: GatedSAEConfig,
-    SAEType.GATED_HARD_CONCRETE: GatedHardConcreteSAEConfig,
     SAEType.TOPK: TopKSAEConfig,
-    SAEType.GUMBEL_TOPK: GumbelTopKSAEConfig,
-    SAEType.VI_TOPK: VITopKSAEConfig,
     SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAEConfig,
     SAEType.BATCH_TOPK: BatchTopKSAEConfig,
     SAEType.HC_BATCH_TOPK: HardConcreteBatchTopKSAEConfig,
@@ -46,14 +36,10 @@ SAE_TYPE_TO_CONFIG = {
 
 SAE_TYPE_TO_CLS = {
     SAEType.HARD_CONCRETE: HardConcreteSAE,
-    SAEType.LAGRANGIAN_HARD_CONCRETE: LagrangianHardConcreteSAE,
     SAEType.LAGRANGIAN: LagrangianSAE,
     SAEType.RELU: ReluSAE,
     SAEType.GATED: GatedSAE,
-    SAEType.GATED_HARD_CONCRETE: GatedHardConcreteSAE,
     SAEType.TOPK: TopKSAE,
-    SAEType.GUMBEL_TOPK: GumbelTopKSAE,
-    SAEType.VI_TOPK: VITopKSAE,
     SAEType.HARD_CONCRETE_TOPK: HardConcreteTopKSAE,
     SAEType.BATCH_TOPK: BatchTopKSAE,
     SAEType.HC_BATCH_TOPK: HardConcreteBatchTopKSAE,
@@ -98,27 +84,15 @@ __all__ = [
     "HardConcreteSAE", 
     "HardConcreteSAEConfig", 
     "HardConcreteSAEOutput",
-    "LagrangianHardConcreteSAE",
-    "LagrangianHardConcreteSAEConfig",
-    "LagrangianHardConcreteSAEOutput",
     "LagrangianSAE",
     "LagrangianSAEConfig",
     "LagrangianSAEOutput",
     "GatedSAE",
     "GatedSAEConfig",
     "GatedSAEOutput",
-    "GatedHardConcreteSAE",
-    "GatedHardConcreteSAEConfig",
-    "GatedHardConcreteSAEOutput",
     "TopKSAE",
     "TopKSAEConfig",
     "TopKSAEOutput",
-    "GumbelTopKSAE",
-    "GumbelTopKSAEConfig",
-    "GumbelTopKSAEOutput",
-    "VITopKSAE",
-    "VITopKSAEConfig", 
-    "VITopKSAEOutput",
     "HardConcreteTopKSAE",
     "HardConcreteTopKSAEConfig",
     "HardConcreteTopKSAEOutput",
