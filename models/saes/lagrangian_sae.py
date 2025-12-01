@@ -314,9 +314,9 @@ class LagrangianSAE(BaseSAE):
         # Use RUNNING L0 for dual ascent (smoother updates)
         running_constraint_violation = self.running_l0 - self.target_l0
         
-        # For inequality constraint, only update alpha when L0 > target
-        # Store positive part of constraint violation for dual ascent
-        self._last_constraint_violation = torch.clamp(running_constraint_violation, min=0.0).detach().clone()
+        # Store RAW constraint violation for dual ascent (can be negative)
+        # The clamp to >= 0 happens in update_alpha() AFTER the update
+        self._last_constraint_violation = running_constraint_violation.detach().clone()
         
         # Differentiable L0 for gradient computation
         mean_l0_diff = output.l0_differentiable.mean()
@@ -346,14 +346,11 @@ class LagrangianSAE(BaseSAE):
 
         loss_dict: dict[str, torch.Tensor] = {
             "mse_loss": mse_loss.detach().clone(),
-            "l0": mean_l0.detach().clone(),  # Batch L0
             "running_l0": self.running_l0.detach().clone(),  # Running mean L0 (expected L0)
-            "l0_diff": mean_l0_diff.detach().clone(),  # Differentiable L0
             "alpha": alpha_value,
             "constraint_violation": running_constraint_violation.detach().clone(),  # Can be negative
             "positive_violation": torch.clamp(running_constraint_violation, min=0.0).detach().clone(),
             "quadratic_penalty": quadratic_penalty.detach().clone(),
-            "num_dead_features": num_dead_features,
             "mean_threshold": mean_threshold.detach().clone(),  # Track learned thresholds
         }
 
@@ -382,15 +379,16 @@ class LagrangianSAE(BaseSAE):
         
         Should be called after optimizer.step() to avoid autograd conflicts.
         
-        Update rule: α ← max(0, α + α_lr * max(0, L0 - target_l0))
+        Update rule: α ← max(0, α + α_lr * (L0 - target_l0))
         
-        Alpha is always >= 0 (inequality constraint).
-        Alpha only increases when L0 > target.
+        - When L0 > target: α increases (stronger sparsity penalty)
+        - When L0 < target: α decreases (weaker penalty, allows more features)
+        - Alpha is clamped to [0, alpha_max] after update
         """
         if hasattr(self, '_last_constraint_violation'):
-            # Only update when constraint is violated (L0 > target)
+            # Update alpha with raw constraint violation (can be negative)
             self.alpha.add_(self.alpha_lr * self._last_constraint_violation)
-            # Alpha >= 0 always (inequality constraint)
+            # Clamp alpha to valid range AFTER update
             self.alpha.clamp_(min=0.0, max=self.alpha_max)
 
     @property
