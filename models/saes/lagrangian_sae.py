@@ -348,8 +348,6 @@ class LagrangianSAE(BaseSAE):
             "mse_loss": mse_loss.detach().clone(),
             "running_l0": self.running_l0.detach().clone(),  # Running mean L0 (expected L0)
             "alpha": alpha_value,
-            "constraint_violation": running_constraint_violation.detach().clone(),  # Can be negative
-            "positive_violation": torch.clamp(running_constraint_violation, min=0.0).detach().clone(),
             "quadratic_penalty": quadratic_penalty.detach().clone(),
             "mean_threshold": mean_threshold.detach().clone(),  # Track learned thresholds
         }
