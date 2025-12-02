@@ -59,10 +59,11 @@ saes:
   l0_ema_momentum: 0.99  # Momentum for running mean of L0 (higher = smoother)
   rho_quadratic: 0.1  # Quadratic penalty coefficient for augmented Lagrangian
   # Per-feature learned threshold parameters (like JumpReLU)
-  # NOTE: initial_threshold should be set high enough that initial L0 is near target
-  # Rule of thumb: set to median activation value or higher (0.1-1.0 works well)
-  initial_threshold: 0.5  # Initial per-feature threshold (stored in log-space, must be > 0)
+  initial_threshold: 0.5  # Fallback threshold if calibration is disabled
   bandwidth: 0.1  # Bandwidth for step function gradient approximation
+  # Threshold calibration (RECOMMENDED: auto-sets thresholds so initial L0 ≈ target_l0)
+  calibrate_thresholds: true
+  calibration_samples: 8192  # Accumulate ~1 batch worth of tokens before calibrating
   tied_encoder_init: true
   use_pre_enc_bias: true
   # Input normalization (RECOMMENDED: ensures consistent L0 behavior across all layers)

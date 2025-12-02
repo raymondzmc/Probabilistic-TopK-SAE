@@ -58,9 +58,13 @@ class LagrangianSAEConfig(SAEConfig):
     l0_ema_momentum: float = Field(0.99, description="Momentum for running mean of L0 (higher = smoother)")
     
     # Per-feature threshold parameters (like JumpReLU)
-    # NOTE: initial_threshold should be high enough that initial L0 is near target (0.1-1.0 works well)
-    initial_threshold: float = Field(0.5, description="Initial per-feature threshold value (stored in log-space)")
+    # NOTE: initial_threshold is a fallback; use calibrate_thresholds=True for automatic calibration
+    initial_threshold: float = Field(0.5, description="Initial per-feature threshold value (fallback if calibration disabled)")
     bandwidth: float = Field(0.1, description="Bandwidth for step function gradient approximation")
+    
+    # Threshold calibration (RECOMMENDED: ensures initial L0 ≈ target_l0)
+    calibrate_thresholds: bool = Field(True, description="Auto-calibrate thresholds during warmup to achieve target L0")
+    calibration_samples: int = Field(1000, description="Number of samples to use for threshold calibration")
     
     # Dead feature tracking and auxiliary loss (optional)
     dead_toks_threshold: int | None = Field(None, description="Threshold for considering a feature as dead (number of tokens)")
@@ -135,6 +139,8 @@ class LagrangianSAE(BaseSAE):
         tied_encoder_init: bool = True,
         use_pre_enc_bias: bool = False,
         normalize_input: bool = False,
+        calibrate_thresholds: bool = True,
+        calibration_samples: int = 1000,
     ):
         """
         Args:
@@ -146,7 +152,7 @@ class LagrangianSAE(BaseSAE):
             alpha_max: Maximum value for alpha.
             rho_quadratic: Coefficient for quadratic penalty in augmented Lagrangian.
             l0_ema_momentum: Momentum for running mean of L0 (0.99 = smooth, 0.0 = no smoothing).
-            initial_threshold: Initial per-feature threshold value (stored in log-space).
+            initial_threshold: Initial per-feature threshold value (fallback if calibration disabled).
             bandwidth: Bandwidth for step function gradient approximation.
             sparsity_coeff: Unused for Lagrangian (present for interface compatibility).
             mse_coeff: Coefficient on MSE reconstruction loss (default 1.0).
@@ -157,6 +163,8 @@ class LagrangianSAE(BaseSAE):
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
             use_pre_enc_bias: Whether to subtract decoder bias before encoding.
             normalize_input: Normalize input to unit variance before encoding.
+            calibrate_thresholds: Auto-calibrate thresholds during warmup to achieve target L0.
+            calibration_samples: Number of samples to accumulate before calibrating thresholds.
         """
         super().__init__()
         assert target_l0 > 0, "target_l0 must be positive"
@@ -230,6 +238,63 @@ class LagrangianSAE(BaseSAE):
             self.register_buffer("running_input_mean", torch.zeros(input_size))
             self.register_buffer("running_input_var", torch.ones(input_size))
             self.register_buffer("input_stats_initialized", torch.tensor(False))
+        
+        # Threshold calibration state
+        self.calibrate_thresholds = calibrate_thresholds
+        self.calibration_samples = calibration_samples
+        if self.calibrate_thresholds:
+            self.register_buffer("thresholds_calibrated", torch.tensor(False))
+            self.register_buffer("calibration_sample_count", torch.tensor(0, dtype=torch.long))
+            # Buffer to accumulate preacts for calibration (we'll store samples until we have enough)
+            # Using a list during calibration, will be cleared after
+            self._calibration_preacts_buffer: list[torch.Tensor] = []
+
+    @torch.no_grad()
+    def _calibrate_thresholds_from_preacts(self, preacts: torch.Tensor) -> None:
+        """
+        Calibrate thresholds based on accumulated pre-activation statistics.
+        
+        Sets per-feature thresholds such that the expected L0 ≈ target_l0.
+        
+        The key insight: if we want L0 = target_l0 features active per sample on average,
+        we need to set each feature's threshold at a percentile such that:
+            P(preact > threshold) ≈ target_l0 / n_dict_components
+        
+        This means threshold should be at the (1 - target_l0/n_dict_components) percentile.
+        """
+        # Flatten to (N, n_dict_components)
+        flat_preacts = preacts.reshape(-1, self.n_dict_components)
+        n_samples = flat_preacts.shape[0]
+        
+        # Target: each feature should activate with probability target_l0 / n_dict_components
+        target_activation_prob = self.target_l0 / self.n_dict_components
+        target_percentile = 1.0 - target_activation_prob  # e.g., 0.998 for L0=32, n=24576
+        
+        # Compute per-feature threshold at target percentile
+        # For each feature, find the value at target_percentile
+        sorted_preacts, _ = torch.sort(flat_preacts, dim=0)
+        percentile_idx = int(target_percentile * n_samples)
+        percentile_idx = min(percentile_idx, n_samples - 1)  # Clamp to valid range
+        
+        # Get threshold values at target percentile for each feature
+        threshold_values = sorted_preacts[percentile_idx, :]  # Shape: (n_dict_components,)
+        
+        # Clamp thresholds to be positive (JumpReLU requires positive thresholds)
+        threshold_values = threshold_values.clamp(min=1e-4)
+        
+        # Set log_threshold
+        self.jumprelu.log_threshold.data.copy_(torch.log(threshold_values))
+        
+        # Mark as calibrated
+        self.thresholds_calibrated.fill_(True)
+        
+        # Log calibration info
+        mean_threshold = threshold_values.mean().item()
+        min_threshold = threshold_values.min().item()
+        max_threshold = threshold_values.max().item()
+        print(f"[LagrangianSAE] Thresholds calibrated: mean={mean_threshold:.4f}, "
+              f"min={min_threshold:.4f}, max={max_threshold:.4f}, "
+              f"target_percentile={target_percentile:.6f}")
 
     def _normalize_input(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -296,6 +361,23 @@ class LagrangianSAE(BaseSAE):
 
         # Encoder with ReLU pre-activation
         preacts = F.relu(self.encoder(x_enc) + self.encoder_bias)
+        
+        # Threshold calibration during warmup (if enabled and not yet calibrated)
+        if self.calibrate_thresholds and self.training and not self.thresholds_calibrated:
+            with torch.no_grad():
+                # Accumulate preacts for calibration
+                flat_preacts = preacts.reshape(-1, self.n_dict_components).detach()
+                self._calibration_preacts_buffer.append(flat_preacts)
+                n_samples = flat_preacts.shape[0]
+                self.calibration_sample_count.add_(n_samples)
+                
+                # Once we have enough samples, calibrate thresholds
+                if self.calibration_sample_count >= self.calibration_samples:
+                    # Concatenate all accumulated preacts
+                    all_preacts = torch.cat(self._calibration_preacts_buffer, dim=0)
+                    self._calibrate_thresholds_from_preacts(all_preacts)
+                    # Clear buffer to free memory
+                    self._calibration_preacts_buffer.clear()
         
         # Apply JumpReLU with per-feature learned thresholds
         c = self.jumprelu(preacts)

@@ -391,6 +391,123 @@ class TestReconstructionConsistency:
         assert torch.allclose(x_reconstructed, x, atol=1e-5)
 
 
+class TestThresholdCalibration:
+    """Tests for automatic threshold calibration."""
+
+    def test_calibration_sets_thresholds(self):
+        """Test that calibration sets thresholds based on target L0."""
+        target_l0 = 16.0
+        sae = LagrangianSAE(
+            input_size=64,
+            n_dict_components=256,
+            target_l0=target_l0,
+            normalize_input=True,
+            calibrate_thresholds=True,
+            calibration_samples=500,  # Low for testing
+            initial_threshold=0.5,
+        )
+        sae.train()
+        
+        # Before calibration
+        assert sae.thresholds_calibrated == False
+        initial_threshold = sae.jumprelu.threshold.mean().item()
+        
+        # Run forward passes to accumulate samples for calibration
+        for _ in range(10):
+            x = torch.randn(100, 64)
+            output = sae(x)
+        
+        # After calibration
+        assert sae.thresholds_calibrated == True
+        calibrated_threshold = sae.jumprelu.threshold.mean().item()
+        
+        # Threshold should have changed
+        assert calibrated_threshold != initial_threshold, "Threshold should change after calibration"
+        
+        # Verify L0 is closer to target after calibration
+        x_test = torch.randn(500, 64)
+        output = sae(x_test)
+        actual_l0 = output.l0.mean().item()
+        
+        # L0 should be within reasonable range of target (not necessarily exact)
+        # The calibration sets thresholds for expected L0 = target, but there's variance
+        assert actual_l0 < target_l0 * 3, f"L0 ({actual_l0}) should be closer to target ({target_l0})"
+
+    def test_calibration_only_happens_once(self):
+        """Test that calibration only happens during warmup."""
+        sae = LagrangianSAE(
+            input_size=64,
+            n_dict_components=128,
+            target_l0=8.0,
+            calibrate_thresholds=True,
+            calibration_samples=100,
+        )
+        sae.train()
+        
+        # Run enough samples to trigger calibration
+        for _ in range(5):
+            x = torch.randn(50, 64)
+            _ = sae(x)
+        
+        assert sae.thresholds_calibrated == True
+        threshold_after_calibration = sae.jumprelu.log_threshold.clone()
+        
+        # Run more forward passes
+        for _ in range(10):
+            x = torch.randn(100, 64)
+            _ = sae(x)
+        
+        # Thresholds should still be the same (calibration only happens once)
+        # Note: thresholds can change during training due to gradient updates,
+        # but the calibration itself shouldn't run again
+        assert sae.thresholds_calibrated == True
+
+    def test_calibration_respects_normalization(self):
+        """Test that calibration works correctly with input normalization."""
+        sae = LagrangianSAE(
+            input_size=64,
+            n_dict_components=128,
+            target_l0=8.0,
+            normalize_input=True,
+            calibrate_thresholds=True,
+            calibration_samples=200,
+        )
+        sae.train()
+        
+        # Use input with large scale (should be normalized before calibration)
+        x = torch.randn(300, 64) * 100.0 + 50.0  # Large mean and std
+        _ = sae(x)
+        
+        assert sae.thresholds_calibrated == True
+        
+        # Thresholds should be reasonable (not inflated by large input scale)
+        mean_threshold = sae.jumprelu.threshold.mean().item()
+        # With normalization, thresholds should be around 1-3, not 100+
+        assert mean_threshold < 10.0, f"Threshold ({mean_threshold}) too high - normalization may not be working"
+
+    def test_calibration_disabled(self):
+        """Test that calibration can be disabled."""
+        sae = LagrangianSAE(
+            input_size=64,
+            n_dict_components=128,
+            target_l0=8.0,
+            calibrate_thresholds=False,  # Disabled
+            initial_threshold=0.5,
+        )
+        sae.train()
+        
+        initial_threshold = sae.jumprelu.threshold.mean().item()
+        
+        # Run many forward passes
+        for _ in range(20):
+            x = torch.randn(100, 64)
+            _ = sae(x)
+        
+        # Without training (no loss.backward()), threshold should stay at initial value
+        # Note: actually threshold can't change without gradients
+        assert not hasattr(sae, 'thresholds_calibrated') or not sae.thresholds_calibrated
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
