@@ -51,6 +51,9 @@ class LagrangianSAEConfig(SAEConfig):
     tied_encoder_init: bool = Field(True, description="Initialize encoder as decoder.T")
     use_pre_enc_bias: bool = Field(False, description="Subtract decoder bias before encoding")
     
+    # Input normalization (recommended for consistent behavior across layers)
+    normalize_input: bool = Field(False, description="Normalize input to unit variance before encoding (helps with layer-wise scale differences)")
+    
     # Running mean (EMA) parameters for stable L0 estimation
     l0_ema_momentum: float = Field(0.99, description="Momentum for running mean of L0 (higher = smoother)")
     
@@ -131,6 +134,7 @@ class LagrangianSAE(BaseSAE):
         init_decoder_orthogonal: bool = True,
         tied_encoder_init: bool = True,
         use_pre_enc_bias: bool = False,
+        normalize_input: bool = False,
     ):
         """
         Args:
@@ -152,6 +156,7 @@ class LagrangianSAE(BaseSAE):
             init_decoder_orthogonal: Initialize decoder weight columns to be orthonormal.
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
             use_pre_enc_bias: Whether to subtract decoder bias before encoding.
+            normalize_input: Normalize input to unit variance before encoding.
         """
         super().__init__()
         assert target_l0 > 0, "target_l0 must be positive"
@@ -170,6 +175,7 @@ class LagrangianSAE(BaseSAE):
         self.l0_ema_momentum = l0_ema_momentum
         self.bandwidth = bandwidth
         self.use_pre_enc_bias = use_pre_enc_bias
+        self.normalize_input = normalize_input
 
         # Loss coefficients
         self.sparsity_coeff = sparsity_coeff if sparsity_coeff is not None else 0.0  # not used directly
@@ -218,16 +224,75 @@ class LagrangianSAE(BaseSAE):
 
         # Dead latent tracking - counts tokens since last activation
         self.register_buffer("stats_last_nonzero", torch.zeros(n_dict_components, dtype=torch.long))
+        
+        # Running statistics for input normalization (if enabled)
+        if self.normalize_input:
+            self.register_buffer("running_input_mean", torch.zeros(input_size))
+            self.register_buffer("running_input_var", torch.ones(input_size))
+            self.register_buffer("input_stats_initialized", torch.tensor(False))
+
+    def _normalize_input(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Normalize input to have approximately unit variance.
+        
+        Uses running statistics during training, frozen statistics during eval.
+        Returns the normalized input, scale (std), and shift (mean) for denormalization.
+        
+        The SAE operates in normalized space for consistent threshold behavior across layers.
+        Reconstruction is computed in normalized space, then denormalized for the output.
+        """
+        # Flatten to (N, input_size) for statistics computation
+        x_flat = x.reshape(-1, self.input_size)
+        
+        if self.training:
+            # Compute batch statistics
+            batch_mean = x_flat.mean(dim=0)
+            batch_var = x_flat.var(dim=0, unbiased=False)
+            
+            with torch.no_grad():
+                if not self.input_stats_initialized:
+                    # Initialize with first batch
+                    self.running_input_mean.copy_(batch_mean)
+                    self.running_input_var.copy_(batch_var)
+                    self.input_stats_initialized.fill_(True)
+                else:
+                    # EMA update (using same momentum as L0 EMA)
+                    momentum = self.l0_ema_momentum
+                    self.running_input_mean.mul_(momentum).add_((1 - momentum) * batch_mean)
+                    self.running_input_var.mul_(momentum).add_((1 - momentum) * batch_var)
+        
+        # Use running statistics for normalization
+        std = (self.running_input_var + 1e-8).sqrt()
+        mean = self.running_input_mean
+        
+        # Normalize: subtract mean, divide by std
+        x_normalized = (x - mean) / std
+        
+        return x_normalized, std, mean
 
     def forward(self, x: Float[torch.Tensor, "... dim"]) -> LagrangianSAEOutput:
         """
         Forward pass (supports arbitrary leading batch dims; last dim == input_size).
+        
+        If normalize_input is enabled:
+        - Input is normalized to approximately zero mean and unit variance
+        - SAE operates entirely in normalized space (encoding, thresholding, decoding)
+        - Output is denormalized back to original scale
+        - MSE loss is computed in original space for proper comparison
         """
+        # Optional: normalize input to unit variance (helps with layer-wise scale differences)
+        if self.normalize_input:
+            x_normalized, input_std, input_mean = self._normalize_input(x)
+        else:
+            x_normalized = x
+            input_std = None
+            input_mean = None
+        
         # Optional: subtract decoder bias before encoding
         if self.use_pre_enc_bias:
-            x_enc = x - self.decoder_bias
+            x_enc = x_normalized - self.decoder_bias
         else:
-            x_enc = x
+            x_enc = x_normalized
 
         # Encoder with ReLU pre-activation
         preacts = F.relu(self.encoder(x_enc) + self.encoder_bias)
@@ -252,8 +317,14 @@ class LagrangianSAE(BaseSAE):
             dead_toks_threshold=self.dead_toks_threshold,
         )
 
-        # Decode using normalized dictionary elements + add bias back
-        x_hat = F.linear(c, self.dict_elements, bias=self.decoder_bias)
+        # Decode using normalized dictionary elements + add bias back (in normalized space)
+        x_hat_normalized = F.linear(c, self.dict_elements, bias=self.decoder_bias)
+        
+        # Denormalize output back to original scale
+        if self.normalize_input and input_std is not None and input_mean is not None:
+            x_hat = x_hat_normalized * input_std + input_mean
+        else:
+            x_hat = x_hat_normalized
 
         # Compute true L0 (for constraint evaluation and logging)
         l0 = (c > 0).float().sum(dim=-1)

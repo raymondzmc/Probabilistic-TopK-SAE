@@ -18,8 +18,18 @@ ALL_SAE_CONFIGS = [
     if inspect.isclass(cls) and issubclass(cls, SAEConfig) and cls is not SAEConfig
 ]
 
-# Union type for type annotations
-AllSAEConfigs = Union[*ALL_SAE_CONFIGS]
+# Union type for type annotations (Python 3.9 compatible)
+AllSAEConfigs = Union[
+    ReLUSAEConfig,
+    HardConcreteSAEConfig,
+    LagrangianSAEConfig,
+    GatedSAEConfig,
+    TopKSAEConfig,
+    HardConcreteTopKSAEConfig,
+    BatchTopKSAEConfig,
+    HardConcreteBatchTopKSAEConfig,
+    JumpReLUSAEConfig,
+]
 
 SAE_TYPE_TO_CONFIG = {
     SAEType.HARD_CONCRETE: HardConcreteSAEConfig,
