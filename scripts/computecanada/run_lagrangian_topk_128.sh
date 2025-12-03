@@ -17,4 +17,4 @@ source ~/venvs/sae/bin/activate
 
 python run_experiments.py \
 --base_config configs/gpt2/gpt2-lagrangian.yaml \
---sweep_config configs/gpt2/sweep/lagrangian_l0_8.yaml
+--sweep_config configs/gpt2/sweep/lagrangian_l0_128.yaml
