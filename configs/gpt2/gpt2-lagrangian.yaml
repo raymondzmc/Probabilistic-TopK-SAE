@@ -57,10 +57,10 @@ saes:
   alpha_lr: 0.01  # Learning rate for dual ascent
   alpha_max: 100.0  # Maximum alpha to prevent instability
   l0_ema_momentum: 0.99  # Momentum for running mean of L0 (higher = smoother)
-  rho_quadratic: 0.1  # Quadratic penalty coefficient for augmented Lagrangian
+  rho_quadratic: 1.0  # Quadratic penalty coefficient (higher = stronger constraint enforcement)
   # Per-feature learned threshold parameters (like JumpReLU)
   initial_threshold: 0.5  # Fallback threshold if calibration is disabled
-  bandwidth: 0.1  # Bandwidth for step function gradient approximation
+  bandwidth: 0.5  # Bandwidth for gradient approximation (larger = more gradient signal to thresholds)
   # Threshold calibration (RECOMMENDED: auto-sets thresholds so initial L0 ≈ target_l0)
   calibrate_thresholds: true
   calibration_samples: 8192  # Accumulate ~1 batch worth of tokens before calibrating

@@ -60,7 +60,7 @@ class LagrangianSAEConfig(SAEConfig):
     # Per-feature threshold parameters (like JumpReLU)
     # NOTE: initial_threshold is a fallback; use calibrate_thresholds=True for automatic calibration
     initial_threshold: float = Field(0.5, description="Initial per-feature threshold value (fallback if calibration disabled)")
-    bandwidth: float = Field(0.1, description="Bandwidth for step function gradient approximation")
+    bandwidth: float = Field(0.5, description="Bandwidth for step function gradient approximation (larger = more gradient signal)")
     
     # Threshold calibration (RECOMMENDED: ensures initial L0 ≈ target_l0)
     calibrate_thresholds: bool = Field(True, description="Auto-calibrate thresholds during warmup to achieve target L0")
