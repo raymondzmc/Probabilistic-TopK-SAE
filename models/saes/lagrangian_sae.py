@@ -63,8 +63,7 @@ class LagrangianSAEConfig(SAEConfig):
     bandwidth: float = Field(0.5, description="Bandwidth for step function gradient approximation (larger = more gradient signal)")
     
     # Threshold calibration (RECOMMENDED: ensures initial L0 ≈ target_l0)
-    calibrate_thresholds: bool = Field(True, description="Auto-calibrate thresholds during warmup to achieve target L0")
-    calibration_samples: int = Field(1000, description="Number of samples to use for threshold calibration")
+    calibrate_thresholds: bool = Field(True, description="Auto-calibrate thresholds on first batch to achieve target L0")
     
     # Dead feature tracking and auxiliary loss (optional)
     dead_toks_threshold: int | None = Field(None, description="Threshold for considering a feature as dead (number of tokens)")
@@ -140,7 +139,6 @@ class LagrangianSAE(BaseSAE):
         use_pre_enc_bias: bool = False,
         normalize_input: bool = False,
         calibrate_thresholds: bool = True,
-        calibration_samples: int = 1000,
     ):
         """
         Args:
@@ -163,8 +161,7 @@ class LagrangianSAE(BaseSAE):
             tied_encoder_init: Initialize encoder.weight = decoder.weight.T.
             use_pre_enc_bias: Whether to subtract decoder bias before encoding.
             normalize_input: Normalize input to unit variance before encoding.
-            calibrate_thresholds: Auto-calibrate thresholds during warmup to achieve target L0.
-            calibration_samples: Number of samples to accumulate before calibrating thresholds.
+            calibrate_thresholds: Auto-calibrate thresholds on first batch to achieve target L0.
         """
         super().__init__()
         assert target_l0 > 0, "target_l0 must be positive"
@@ -241,13 +238,8 @@ class LagrangianSAE(BaseSAE):
         
         # Threshold calibration state
         self.calibrate_thresholds = calibrate_thresholds
-        self.calibration_samples = calibration_samples
         if self.calibrate_thresholds:
             self.register_buffer("thresholds_calibrated", torch.tensor(False))
-            self.register_buffer("calibration_sample_count", torch.tensor(0, dtype=torch.long))
-            # Buffer to accumulate preacts for calibration (we'll store samples until we have enough)
-            # Using a list during calibration, will be cleared after
-            self._calibration_preacts_buffer: list[torch.Tensor] = []
 
     @torch.no_grad()
     def _calibrate_thresholds_from_preacts(self, preacts: torch.Tensor) -> None:
@@ -362,22 +354,10 @@ class LagrangianSAE(BaseSAE):
         # Encoder with ReLU pre-activation
         preacts = F.relu(self.encoder(x_enc) + self.encoder_bias)
         
-        # Threshold calibration during warmup (if enabled and not yet calibrated)
+        # Threshold calibration on first batch (if enabled and not yet calibrated)
         if self.calibrate_thresholds and self.training and not self.thresholds_calibrated:
             with torch.no_grad():
-                # Accumulate preacts for calibration
-                flat_preacts = preacts.reshape(-1, self.n_dict_components).detach()
-                self._calibration_preacts_buffer.append(flat_preacts)
-                n_samples = flat_preacts.shape[0]
-                self.calibration_sample_count.add_(n_samples)
-                
-                # Once we have enough samples, calibrate thresholds
-                if self.calibration_sample_count >= self.calibration_samples:
-                    # Concatenate all accumulated preacts
-                    all_preacts = torch.cat(self._calibration_preacts_buffer, dim=0)
-                    self._calibrate_thresholds_from_preacts(all_preacts)
-                    # Clear buffer to free memory
-                    self._calibration_preacts_buffer.clear()
+                self._calibrate_thresholds_from_preacts(preacts)
         
         # Apply JumpReLU with per-feature learned thresholds
         c = self.jumprelu(preacts)
@@ -484,8 +464,9 @@ class LagrangianSAE(BaseSAE):
         
         # Augmented Lagrangian formulation:
         # L = MSE + α * max(0, L0_diff - target) + ρ/2 * max(0, L0_diff - target)²
-        sparsity_loss = alpha_value * positive_violation / self.n_dict_components
-        quadratic_penalty = self.rho_quadratic * (positive_violation ** 2) / self.n_dict_components
+        # No normalization - alpha directly controls penalty strength
+        sparsity_loss = alpha_value * positive_violation
+        quadratic_penalty = self.rho_quadratic * (positive_violation ** 2)
         
         total_loss = self.mse_coeff * mse_loss + sparsity_loss + quadratic_penalty
 

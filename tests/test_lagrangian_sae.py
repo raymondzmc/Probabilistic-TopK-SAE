@@ -403,7 +403,6 @@ class TestThresholdCalibration:
             target_l0=target_l0,
             normalize_input=True,
             calibrate_thresholds=True,
-            calibration_samples=500,  # Low for testing
             initial_threshold=0.5,
         )
         sae.train()
@@ -412,10 +411,9 @@ class TestThresholdCalibration:
         assert sae.thresholds_calibrated == False
         initial_threshold = sae.jumprelu.threshold.mean().item()
         
-        # Run forward passes to accumulate samples for calibration
-        for _ in range(10):
-            x = torch.randn(100, 64)
-            output = sae(x)
+        # Run one forward pass to trigger calibration
+        x = torch.randn(100, 64)
+        output = sae(x)
         
         # After calibration
         assert sae.thresholds_calibrated == True
@@ -434,20 +432,18 @@ class TestThresholdCalibration:
         assert actual_l0 < target_l0 * 3, f"L0 ({actual_l0}) should be closer to target ({target_l0})"
 
     def test_calibration_only_happens_once(self):
-        """Test that calibration only happens during warmup."""
+        """Test that calibration only happens on first batch."""
         sae = LagrangianSAE(
             input_size=64,
             n_dict_components=128,
             target_l0=8.0,
             calibrate_thresholds=True,
-            calibration_samples=100,
         )
         sae.train()
         
-        # Run enough samples to trigger calibration
-        for _ in range(5):
-            x = torch.randn(50, 64)
-            _ = sae(x)
+        # Run first forward pass to trigger calibration
+        x = torch.randn(50, 64)
+        _ = sae(x)
         
         assert sae.thresholds_calibrated == True
         threshold_after_calibration = sae.jumprelu.log_threshold.clone()
@@ -470,7 +466,6 @@ class TestThresholdCalibration:
             target_l0=8.0,
             normalize_input=True,
             calibrate_thresholds=True,
-            calibration_samples=200,
         )
         sae.train()
         
