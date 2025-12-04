@@ -461,12 +461,13 @@ class LagrangianSAE(BaseSAE):
         # Inequality constraint: only penalize when L0 > target
         # Use ReLU to get max(0, L0_diff - target)
         positive_violation = F.relu(differentiable_violation)
+        normalized_positive_violation = positive_violation / self.target_l0
         
         # Augmented Lagrangian formulation:
         # L = MSE + α * max(0, L0_diff - target) + ρ/2 * max(0, L0_diff - target)²
         # No normalization - alpha directly controls penalty strength
-        sparsity_loss = alpha_value * positive_violation
-        quadratic_penalty = self.rho_quadratic * (positive_violation ** 2)
+        sparsity_loss = alpha_value * normalized_positive_violation
+        quadratic_penalty = self.rho_quadratic * (normalized_positive_violation ** 2)
         
         total_loss = self.mse_coeff * mse_loss + sparsity_loss + quadratic_penalty
 
