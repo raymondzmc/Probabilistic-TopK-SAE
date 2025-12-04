@@ -64,10 +64,6 @@ class LagrangianSAEConfig(SAEConfig):
     
     # Threshold calibration (RECOMMENDED: ensures initial L0 ≈ target_l0)
     calibrate_thresholds: bool = Field(True, description="Auto-calibrate thresholds on first batch to achieve target L0")
-    calibration_samples: int = Field(1000, description="Number of samples to use for threshold calibration")
-    
-    # Sparsity warmup (RECOMMENDED: let SAE learn features before enforcing sparsity)
-    sparsity_warmup_steps: int = Field(1000, description="Number of steps with no sparsity penalty (MSE-only warmup)")
     
     # Dead feature tracking and auxiliary loss (optional)
     dead_toks_threshold: int | None = Field(None, description="Threshold for considering a feature as dead (number of tokens)")
@@ -143,8 +139,6 @@ class LagrangianSAE(BaseSAE):
         use_pre_enc_bias: bool = False,
         normalize_input: bool = False,
         calibrate_thresholds: bool = True,
-        calibration_samples: int = 1000,
-        sparsity_warmup_steps: int = 1000,
     ):
         """
         Args:
@@ -168,8 +162,6 @@ class LagrangianSAE(BaseSAE):
             use_pre_enc_bias: Whether to subtract decoder bias before encoding.
             normalize_input: Normalize input to unit variance before encoding.
             calibrate_thresholds: Auto-calibrate thresholds on first batch to achieve target L0.
-            calibration_samples: Number of samples to accumulate before calibrating thresholds.
-            sparsity_warmup_steps: Number of steps with no sparsity penalty (MSE-only warmup).
         """
         super().__init__()
         assert target_l0 > 0, "target_l0 must be positive"
@@ -246,15 +238,8 @@ class LagrangianSAE(BaseSAE):
         
         # Threshold calibration state
         self.calibrate_thresholds = calibrate_thresholds
-        self.calibration_samples = calibration_samples
         if self.calibrate_thresholds:
             self.register_buffer("thresholds_calibrated", torch.tensor(False))
-            self.register_buffer("calibration_sample_count", torch.tensor(0, dtype=torch.long))
-            self._calibration_preacts_buffer: list[torch.Tensor] = []
-        
-        # Sparsity warmup (MSE-only training for first N steps)
-        self.sparsity_warmup_steps = sparsity_warmup_steps
-        self.register_buffer("training_step", torch.tensor(0, dtype=torch.long))
 
     @torch.no_grad()
     def _calibrate_thresholds_from_preacts(self, preacts: torch.Tensor) -> None:
@@ -473,32 +458,17 @@ class LagrangianSAE(BaseSAE):
         # Get current alpha value (detached to avoid gradient through alpha)
         alpha_value = self.alpha.detach().clone()
         
-        # Check if we're in warmup phase (MSE-only, no sparsity penalty)
-        in_warmup = self.training_step < self.sparsity_warmup_steps
-        
-        # Inequality constraint: only penalize when L0 > target (and not in warmup)
+        # Inequality constraint: only penalize when L0 > target
         # Use ReLU to get max(0, L0_diff - target)
         positive_violation = F.relu(differentiable_violation)
         
-        if in_warmup:
-            # During warmup: only MSE loss, no sparsity penalty
-            sparsity_loss = torch.zeros_like(mse_loss)
-            quadratic_penalty = torch.zeros_like(mse_loss)
-            # Don't update alpha during warmup
-            self._last_constraint_violation = torch.zeros_like(running_constraint_violation)
-        else:
-            # Augmented Lagrangian formulation:
-            # L = MSE + α * max(0, L0_diff - target) + ρ/2 * max(0, L0_diff - target)²
-            # No normalization - alpha directly controls penalty strength
-            sparsity_loss = alpha_value * positive_violation
-            quadratic_penalty = self.rho_quadratic * (positive_violation ** 2)
+        # Augmented Lagrangian formulation:
+        # L = MSE + α * max(0, L0_diff - target) + ρ/2 * max(0, L0_diff - target)²
+        # No normalization - alpha directly controls penalty strength
+        sparsity_loss = alpha_value * positive_violation
+        quadratic_penalty = self.rho_quadratic * (positive_violation ** 2)
         
         total_loss = self.mse_coeff * mse_loss + sparsity_loss + quadratic_penalty
-        
-        # Increment training step counter
-        if self.training:
-            with torch.no_grad():
-                self.training_step.add_(1)
 
         # Compute number of dead features for logging
         num_dead_features = torch.tensor(0.0, device=output.input.device)
@@ -512,10 +482,8 @@ class LagrangianSAE(BaseSAE):
             "mse_loss": mse_loss.detach().clone(),
             "running_l0": self.running_l0.detach().clone(),  # Running mean L0 (expected L0)
             "alpha": alpha_value,
-            "sparsity_loss": sparsity_loss.detach().clone(),
             "quadratic_penalty": quadratic_penalty.detach().clone(),
             "mean_threshold": mean_threshold.detach().clone(),  # Track learned thresholds
-            "in_warmup": torch.tensor(1.0 if in_warmup else 0.0, device=output.input.device),
         }
 
         # Optional auxiliary dead-feature loss using residual reconstruction

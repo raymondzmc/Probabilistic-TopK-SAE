@@ -60,12 +60,9 @@ saes:
   rho_quadratic: 0.1  # Quadratic penalty coefficient (no normalization, so keep small)
   # Per-feature learned threshold parameters (like JumpReLU)
   initial_threshold: 0.5  # Fallback threshold if calibration is disabled
-  bandwidth: 0.5  # Bandwidth for gradient approximation (larger = more gradient signal to thresholds)
+  bandwidth: 0.01  # Bandwidth for gradient approximation (larger = more gradient signal to thresholds)
   # Threshold calibration (RECOMMENDED: auto-sets thresholds so initial L0 ≈ target_l0)
   calibrate_thresholds: true
-  calibration_samples: 8192  # Samples to accumulate before calibrating
-  # Sparsity warmup (RECOMMENDED: train MSE-only first, then add sparsity penalty)
-  sparsity_warmup_steps: 1000  # Steps of MSE-only training before enforcing sparsity
   tied_encoder_init: true
   use_pre_enc_bias: true
   # Input normalization (RECOMMENDED: ensures consistent L0 behavior across all layers)
