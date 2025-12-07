@@ -1,3 +1,4 @@
+from time import time
 from typing import Any
 import math
 
@@ -240,7 +241,7 @@ def create_dataloaders(
             eval_dataset = dataset.select(range(eval_start, eval_end))
         else:
             eval_dataset = None
-    
+            
     # Process datasets (tokenization if needed)
     if data_config.is_tokenized:
         train_torch_dataset = train_dataset.with_format("torch")
@@ -256,8 +257,9 @@ def create_dataloaders(
             train_dataset,
             tokenizer,
             max_length=data_config.context_length,
-            column_name=data_config.column_name,
-            add_bos_token=True,
+            # column_name=data_config.column_name,
+            # add_bos_token=True,
+            add_bos_token=False,
         )
         
         eval_torch_dataset = None
@@ -266,10 +268,21 @@ def create_dataloaders(
                 eval_dataset,
                 tokenizer,
                 max_length=data_config.context_length,
-                column_name=data_config.column_name,
-                add_bos_token=True,
+                # column_name=data_config.column_name,
+                # add_bos_token=True,
+                add_bos_token=False,
             )
-    
+            
+        # recaculate the real sizes of the tokenized datasets    
+        for i, x in tqdm(enumerate(train_torch_dataset)):
+            pass
+        data_config = data_config.model_copy(update={"n_train_samples": i + 1})
+
+        if eval_torch_dataset is not None:
+            for i, x in enumerate(tqdm(eval_torch_dataset)):
+                pass
+            data_config = data_config.model_copy(update={"n_eval_samples": i + 1})
+        
     # Use StreamingDataLoader for streaming datasets, regular DataLoader for others
     if data_config.streaming:
         # Calculate expected number of batches for streaming datasets
@@ -305,5 +318,8 @@ def create_dataloaders(
                 batch_size=data_config.effective_eval_batch_size,
                 shuffle=False,
             )
+             
+    return train_loader, eval_loader, data_config
+
     
-    return train_loader, eval_loader
+    
