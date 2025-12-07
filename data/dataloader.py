@@ -259,7 +259,7 @@ def create_dataloaders(
             max_length=data_config.context_length,
             # column_name=data_config.column_name,
             # add_bos_token=True,
-            add_bos_token=False,
+            add_bos_token=False, # anji: bos_token of qwen3 is none, add bos_token will cause None in input_ids
         )
         
         eval_torch_dataset = None
